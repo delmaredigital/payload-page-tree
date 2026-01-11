@@ -2,6 +2,12 @@
 
 import { useEffect, useRef } from 'react'
 
+interface ActionButton {
+  label: string
+  onClick: () => void
+  variant?: 'primary' | 'secondary' | 'danger'
+}
+
 interface ConfirmationModalProps {
   isOpen: boolean
   title: string
@@ -10,8 +16,10 @@ interface ConfirmationModalProps {
   confirmLabel?: string
   cancelLabel?: string
   danger?: boolean
-  onConfirm: () => void
+  onConfirm?: () => void
   onCancel: () => void
+  /** Custom action buttons - if provided, replaces confirm/cancel pattern */
+  actions?: ActionButton[]
 }
 
 export function ConfirmationModal({
@@ -24,15 +32,21 @@ export function ConfirmationModal({
   danger = false,
   onConfirm,
   onCancel,
+  actions,
 }: ConfirmationModalProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null)
+  const firstActionRef = useRef<HTMLButtonElement>(null)
 
-  // Focus confirm button when modal opens
+  // Focus first action button when modal opens
   useEffect(() => {
-    if (isOpen && confirmButtonRef.current) {
-      confirmButtonRef.current.focus()
+    if (isOpen) {
+      if (actions && firstActionRef.current) {
+        firstActionRef.current.focus()
+      } else if (confirmButtonRef.current) {
+        confirmButtonRef.current.focus()
+      }
     }
-  }, [isOpen])
+  }, [isOpen, actions])
 
   // Handle escape key
   useEffect(() => {
@@ -134,40 +148,110 @@ export function ConfirmationModal({
             justifyContent: 'flex-end',
             gap: '12px',
             marginTop: details ? '0' : '24px',
+            flexWrap: 'wrap',
           }}
         >
-          <button
-            onClick={onCancel}
-            style={{
-              padding: '8px 16px',
-              border: '1px solid var(--theme-elevation-150)',
-              borderRadius: '4px',
-              backgroundColor: 'transparent',
-              color: 'var(--theme-elevation-600)',
-              fontSize: '14px',
-              cursor: 'pointer',
-            }}
-          >
-            {cancelLabel}
-          </button>
-          <button
-            ref={confirmButtonRef}
-            onClick={onConfirm}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: '4px',
-              backgroundColor: danger
-                ? 'var(--theme-error-500, #ef4444)'
-                : 'var(--theme-success-500, #22c55e)',
-              color: 'white',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: 'pointer',
-            }}
-          >
-            {confirmLabel}
-          </button>
+          {actions ? (
+            <>
+              {/* Cancel button for custom actions */}
+              <button
+                onClick={onCancel}
+                style={{
+                  padding: '8px 16px',
+                  border: '1px solid var(--theme-elevation-150)',
+                  borderRadius: '4px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--theme-elevation-600)',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                }}
+              >
+                {cancelLabel}
+              </button>
+              {/* Custom action buttons */}
+              {actions.map((action, index) => {
+                const getButtonStyles = () => {
+                  const base = {
+                    padding: '8px 16px',
+                    borderRadius: '4px',
+                    fontSize: '14px',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }
+                  switch (action.variant) {
+                    case 'danger':
+                      return {
+                        ...base,
+                        border: 'none',
+                        backgroundColor: 'var(--theme-error-500, #ef4444)',
+                        color: 'white',
+                      }
+                    case 'secondary':
+                      return {
+                        ...base,
+                        border: '1px solid var(--theme-elevation-250)',
+                        backgroundColor: 'var(--theme-elevation-100)',
+                        color: 'var(--theme-elevation-800)',
+                      }
+                    case 'primary':
+                    default:
+                      return {
+                        ...base,
+                        border: 'none',
+                        backgroundColor: 'var(--theme-success-500, #22c55e)',
+                        color: 'white',
+                      }
+                  }
+                }
+                return (
+                  <button
+                    key={action.label}
+                    ref={index === 0 ? firstActionRef : undefined}
+                    onClick={action.onClick}
+                    style={getButtonStyles()}
+                  >
+                    {action.label}
+                  </button>
+                )
+              })}
+            </>
+          ) : (
+            <>
+              {/* Standard confirm/cancel pattern */}
+              <button
+                onClick={onCancel}
+                style={{
+                  padding: '8px 16px',
+                  border: '1px solid var(--theme-elevation-150)',
+                  borderRadius: '4px',
+                  backgroundColor: 'transparent',
+                  color: 'var(--theme-elevation-600)',
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                }}
+              >
+                {cancelLabel}
+              </button>
+              <button
+                ref={confirmButtonRef}
+                onClick={onConfirm}
+                style={{
+                  padding: '8px 16px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  backgroundColor: danger
+                    ? 'var(--theme-error-500, #ef4444)'
+                    : 'var(--theme-success-500, #22c55e)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                {confirmLabel}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </>

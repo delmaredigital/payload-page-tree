@@ -10,7 +10,11 @@ interface CascadeOptions {
 
 /**
  * Creates an afterChange hook for folders that cascades slug updates to all affected pages
- * when a folder's pathSegment changes or it's moved to a different parent
+ * when a folder's pathSegment changes or it's moved to a different parent.
+ *
+ * IMPORTANT: Cascade only runs when context.updateSlugs is true.
+ * This prevents accidental URL changes when folders are edited through Payload's standard UI.
+ * To update slugs, use the tree view's "Update URLs" option or the /api/page-tree/regenerate-slugs endpoint.
  */
 export function createCascadeSlugUpdatesHook(
   options: CascadeOptions,
@@ -20,6 +24,10 @@ export function createCascadeSlugUpdatesHook(
   return async ({ doc, previousDoc, req, context }) => {
     // Prevent infinite loops - check if we're already cascading
     if (context?.cascading) return doc
+
+    // Only cascade if explicitly requested
+    // This prevents breaking URLs when folders are edited via Payload's standard UI
+    if (!context?.updateSlugs) return doc
 
     // Check if pathSegment changed or parent folder changed
     const segmentChanged = doc.pathSegment !== previousDoc?.pathSegment
@@ -54,7 +62,7 @@ export function createCascadeSlugUpdatesHook(
             collection: collectionSlug as CollectionSlug,
             id: page.id,
             data: {}, // Empty update triggers beforeChange hook
-            context: { cascading: true }, // Prevent infinite loops
+            context: { cascading: true, updateSlugs: true }, // Prevent loops + enable regeneration
           })
         }
 

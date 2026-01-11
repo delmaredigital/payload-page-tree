@@ -137,3 +137,4 @@ export type ContextMenuAction =
   | 'unpublish'
   | 'expandAll'
   | 'collapseAll'
+  | 'regenerateSlugs'

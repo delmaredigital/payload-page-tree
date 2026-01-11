@@ -11,6 +11,8 @@ import {
   createDuplicateHandler,
   createStatusHandler,
   createRenameHandler,
+  createRegenerateSlugsHandler,
+  createMigrateHandler,
 } from './endpoints/treeOperations.js'
 
 export type { PageTreePluginConfig } from './types.js'
@@ -75,7 +77,6 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
           const pathSegmentField: TextField = {
             name: segmentFieldName,
             type: 'text',
-            required: true,
             admin: {
               position: 'sidebar',
               description: 'URL path segment (e.g., "appeals" for /appeals/...)',
@@ -269,6 +270,16 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
         path: '/page-tree/rename',
         method: 'post',
         handler: createRenameHandler(endpointOptions),
+      },
+      {
+        path: '/page-tree/regenerate-slugs',
+        method: 'post',
+        handler: createRegenerateSlugsHandler(endpointOptions),
+      },
+      {
+        path: '/page-tree/migrate',
+        method: 'post',
+        handler: createMigrateHandler(endpointOptions),
       },
     ]
 

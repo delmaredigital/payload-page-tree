@@ -89,7 +89,13 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
 
   // Execute the actual move operation
   const executeMove = useCallback(
-    async (dragIds: string[], parentId: string | null, index: number, node: TreeNodeType) => {
+    async (
+      dragIds: string[],
+      parentId: string | null,
+      index: number,
+      node: TreeNodeType,
+      updateSlugs: boolean = false,
+    ) => {
       // Optimistic update with recalculated page counts
       const movedData = moveNodeInTree(data, dragIds[0], parentId, index)
       const newData = recalculatePageCounts(movedData)
@@ -104,10 +110,15 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
             id: getRawId(node),
             newParentId: stripIdPrefix(parentId),
             newIndex: index,
+            updateSlugs,
           }),
         })
+        if (updateSlugs && node.type === 'folder') {
+          toast.success('URLs updated to match new folder location')
+        }
       } catch (error) {
         console.error('Move failed:', error)
+        toast.error('Move failed')
         // Revert on error
         setData(treeData)
       }
@@ -146,12 +157,21 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
   )
 
   // Confirm move operation
-  const confirmMove = useCallback(() => {
-    if (pendingMove) {
-      executeMove(pendingMove.dragIds, pendingMove.parentId, pendingMove.index, pendingMove.node)
-      setPendingMove(null)
-    }
-  }, [pendingMove, executeMove])
+  const confirmMove = useCallback(
+    (updateSlugs: boolean) => {
+      if (pendingMove) {
+        executeMove(
+          pendingMove.dragIds,
+          pendingMove.parentId,
+          pendingMove.index,
+          pendingMove.node,
+          updateSlugs,
+        )
+        setPendingMove(null)
+      }
+    },
+    [pendingMove, executeMove],
+  )
 
   // Cancel move operation
   const cancelMove = useCallback(() => {
@@ -360,6 +380,26 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
         case 'collapseAll':
           treeRef.current?.closeAll()
           break
+
+        case 'regenerateSlugs':
+          if (node.type === 'folder') {
+            try {
+              const result = await apiCall(
+                `/page-tree/regenerate-slugs?folderId=${rawId}`,
+                { method: 'POST' },
+              )
+              if (result.success) {
+                toast.success(`Updated ${result.count} page URLs`)
+                // Refresh to show updated slugs
+                window.location.reload()
+              }
+            } catch (error) {
+              console.error('Regenerate slugs failed:', error)
+              const message = error instanceof Error ? error.message : 'Regenerate slugs failed'
+              toast.error(message)
+            }
+          }
+          break
       }
     },
     [data, adminRoute, collections, apiCall, puckEnabled],
@@ -431,11 +471,21 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
         <ConfirmationModal
           isOpen={pendingMove !== null}
           title="Move Folder"
-          message={`Moving "${pendingMove?.node.name}" will change URLs for all nested pages.`}
-          details={`${pendingMove?.affectedCount} page${pendingMove?.affectedCount === 1 ? '' : 's'} will be affected. Existing links to these pages may break.`}
-          confirmLabel="Move Folder"
-          onConfirm={confirmMove}
+          message={`Moving "${pendingMove?.node.name}" - what should happen to page URLs?`}
+          details={`${pendingMove?.affectedCount} page${pendingMove?.affectedCount === 1 ? '' : 's'} in this folder.`}
           onCancel={cancelMove}
+          actions={[
+            {
+              label: 'Keep existing URLs',
+              onClick: () => confirmMove(false),
+              variant: 'secondary',
+            },
+            {
+              label: 'Update URLs',
+              onClick: () => confirmMove(true),
+              variant: 'primary',
+            },
+          ]}
         />
 
         {/* Delete Confirmation Modal */}

@@ -82,22 +82,26 @@ function escapeRegex(str: string): string {
 
 /**
  * Move a page or folder to a new parent and/or position
+ *
+ * When moving folders, accepts optional `updateSlugs` parameter:
+ * - `true`: Cascade slug updates to all nested pages (matches new folder path)
+ * - `false` (default): Keep existing slugs (organizational move only)
  */
 export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler {
   const { collections, folderSlug } = options
 
   return async (req) => {
     try {
-      const body = (await req.json?.()) as MovePayload
+      const body = (await req.json?.()) as MovePayload & { updateSlugs?: boolean }
 
       if (!body?.type || !body?.id) {
         return Response.json({ error: 'Missing required fields: type, id' }, { status: 400 })
       }
 
-      const { type, id, newParentId, newIndex } = body
+      const { type, id, newParentId, newIndex, updateSlugs = false } = body
 
       if (type === 'folder') {
-        // Move folder
+        // Move folder - pass updateSlugs context to trigger cascade if requested
         await req.payload.update({
           collection: folderSlug as CollectionSlug,
           id,
@@ -105,6 +109,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
             folder: newParentId || null,
             sortOrder: newIndex,
           },
+          context: { updateSlugs },
         })
       } else {
         // Move page - find which collection it belongs to
@@ -117,6 +122,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
                 folder: newParentId || null,
                 sortOrder: newIndex,
               },
+              context: { updateSlugs },
             })
             break // Found and updated
           } catch {
@@ -448,19 +454,29 @@ export function createStatusHandler(options: TreeEndpointOptions): PayloadHandle
 
 /**
  * Rename a page or folder
+ *
+ * When renaming folders, accepts optional `updateSlugs` parameter:
+ * - `true`: Cascade slug updates to all nested pages (if pathSegment changes)
+ * - `false` (default): Keep existing slugs
  */
 export function createRenameHandler(options: TreeEndpointOptions): PayloadHandler {
   const { collections, folderSlug } = options
 
   return async (req) => {
     try {
-      const body = (await req.json?.()) as { type: 'page' | 'folder'; id: string; name: string; collection?: string }
+      const body = (await req.json?.()) as {
+        type: 'page' | 'folder'
+        id: string
+        name: string
+        collection?: string
+        updateSlugs?: boolean
+      }
 
       if (!body?.type || !body?.id || !body?.name) {
         return Response.json({ error: 'Missing required fields: type, id, name' }, { status: 400 })
       }
 
-      const { type, id, name, collection } = body
+      const { type, id, name, collection, updateSlugs = false } = body
 
       if (type === 'folder') {
         // Get the folder to find its parent
@@ -496,6 +512,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           collection: folderSlug as CollectionSlug,
           id,
           data: { name },
+          context: { updateSlugs },
         })
       } else if (collection) {
         // Get the page to find its parent folder
@@ -531,6 +548,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           collection: collection as CollectionSlug,
           id,
           data: { title: name },
+          context: { updateSlugs },
         })
       }
 
@@ -543,4 +561,183 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
       )
     }
   }
+}
+
+/**
+ * Regenerate slugs for pages based on their folder hierarchy
+ *
+ * Accepts optional `folderId` parameter:
+ * - If provided: regenerates slugs for all pages in that folder and its subfolders
+ * - If omitted: regenerates slugs for ALL pages in configured collections
+ */
+export function createRegenerateSlugsHandler(options: TreeEndpointOptions): PayloadHandler {
+  const { collections, folderSlug } = options
+
+  return async (req) => {
+    try {
+      if (!req.url) {
+        return Response.json({ error: 'Invalid request URL' }, { status: 400 })
+      }
+      const url = new URL(req.url)
+      const folderId = url.searchParams.get('folderId')
+
+      let updatedCount = 0
+
+      if (folderId) {
+        // Get all folder IDs including nested children
+        const childFolderIds = await getAllChildFolderIdsForRegenerate(folderId, req.payload, folderSlug)
+        const allFolderIds = [folderId, ...childFolderIds]
+
+        // Update pages in all affected folders
+        for (const collectionSlug of collections) {
+          const { docs: pages } = await req.payload.find({
+            collection: collectionSlug as CollectionSlug,
+            where: {
+              folder: { in: allFolderIds },
+            },
+            limit: 0,
+            depth: 0,
+          })
+
+          for (const page of pages) {
+            await req.payload.update({
+              collection: collectionSlug as CollectionSlug,
+              id: page.id,
+              data: {}, // Empty update triggers beforeChange hook
+              context: { updateSlugs: true },
+            })
+            updatedCount++
+          }
+        }
+      } else {
+        // Regenerate ALL pages
+        for (const collectionSlug of collections) {
+          const { docs: pages } = await req.payload.find({
+            collection: collectionSlug as CollectionSlug,
+            limit: 0,
+            depth: 0,
+          })
+
+          for (const page of pages) {
+            await req.payload.update({
+              collection: collectionSlug as CollectionSlug,
+              id: page.id,
+              data: {},
+              context: { updateSlugs: true },
+            })
+            updatedCount++
+          }
+        }
+      }
+
+      console.log(`[payload-page-tree] Regenerated slugs for ${updatedCount} pages`)
+
+      return Response.json({
+        success: true,
+        message: `Regenerated slugs for ${updatedCount} pages`,
+        count: updatedCount,
+      })
+    } catch (error) {
+      console.error('[payload-page-tree] Regenerate slugs error:', error)
+      return Response.json(
+        { error: error instanceof Error ? error.message : 'Regenerate slugs failed' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
+ * Migrate existing folders by populating pathSegment from folder name
+ *
+ * This endpoint helps users who add the plugin to an existing project:
+ * - Finds all folders where pathSegment is null or empty
+ * - Sets pathSegment to slugify(name)
+ * - Does NOT update page slugs (preserves existing URLs)
+ */
+export function createMigrateHandler(options: TreeEndpointOptions): PayloadHandler {
+  const { folderSlug } = options
+
+  return async (req) => {
+    try {
+      // Find all folders without pathSegment
+      const { docs: folders } = await req.payload.find({
+        collection: folderSlug as CollectionSlug,
+        where: {
+          or: [
+            { pathSegment: { exists: false } },
+            { pathSegment: { equals: '' } },
+            { pathSegment: { equals: null } },
+          ],
+        },
+        limit: 0,
+        depth: 0,
+      })
+
+      const updated: Array<{ id: string | number; name: string; pathSegment: string }> = []
+
+      for (const folder of folders) {
+        const folderDoc = folder as unknown as { id: string | number; name: string }
+        if (folderDoc.name) {
+          const newPathSegment = slugify(folderDoc.name)
+          await req.payload.update({
+            collection: folderSlug as CollectionSlug,
+            id: folderDoc.id,
+            data: { pathSegment: newPathSegment },
+            // Don't trigger slug cascade - we want to preserve existing page slugs
+            context: { updateSlugs: false },
+          })
+          updated.push({
+            id: folderDoc.id,
+            name: folderDoc.name,
+            pathSegment: newPathSegment,
+          })
+        }
+      }
+
+      console.log(`[payload-page-tree] Migrated ${updated.length} folders`)
+
+      return Response.json({
+        success: true,
+        message: `Migrated ${updated.length} folders (page slugs preserved)`,
+        count: updated.length,
+        folders: updated,
+      })
+    } catch (error) {
+      console.error('[payload-page-tree] Migrate error:', error)
+      return Response.json(
+        { error: error instanceof Error ? error.message : 'Migration failed' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
+ * Helper to get all child folder IDs for regenerate endpoint
+ */
+async function getAllChildFolderIdsForRegenerate(
+  parentId: string,
+  payload: Payload,
+  folderSlug: string,
+): Promise<string[]> {
+  const result = await payload.find({
+    collection: folderSlug as CollectionSlug,
+    where: {
+      folder: { equals: parentId },
+    },
+    limit: 0,
+    depth: 0,
+  })
+
+  const childIds = result.docs.map((doc: any) => String(doc.id))
+
+  // Recursively get grandchildren
+  const grandchildIds: string[] = []
+  for (const childId of childIds) {
+    const descendants = await getAllChildFolderIdsForRegenerate(childId, payload, folderSlug)
+    grandchildIds.push(...descendants)
+  }
+
+  return [...childIds, ...grandchildIds]
 }
