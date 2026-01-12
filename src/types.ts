@@ -1,9 +1,10 @@
 export interface PageTreePluginConfig {
   /**
    * Collections to add folder-based slugs to
-   * @example ['pages']
+   * @default ['pages', 'posts']
+   * @example ['pages', 'posts', 'articles']
    */
-  collections: string[]
+  collections?: string[]
 
   /**
    * Custom slug for the folders collection
@@ -69,6 +70,25 @@ export interface TreeNode {
   folderId?: string | null
   sortOrder: number
   collection?: string
+  /** Audit trail of previous slugs (pages only) */
+  slugHistory?: SlugHistoryEntry[]
+}
+
+/**
+ * Slug change reason for audit trail
+ */
+export type SlugChangeReason = 'move' | 'rename' | 'regenerate' | 'restore' | 'manual'
+
+/**
+ * Entry in the slug history audit trail
+ */
+export interface SlugHistoryEntry {
+  /** The previous slug value */
+  slug: string
+  /** When this slug was replaced */
+  changedAt: Date | string
+  /** Why the slug was changed */
+  reason?: SlugChangeReason
 }
 
 /**
@@ -81,6 +101,8 @@ export interface PageDocument {
   folder?: number | string | FolderDocument | null
   _status?: 'draft' | 'published'
   sortOrder?: number
+  /** Audit trail of previous slugs (max 20 entries) */
+  slugHistory?: SlugHistoryEntry[]
 }
 
 export interface FolderDocument {
@@ -89,6 +111,11 @@ export interface FolderDocument {
   pathSegment?: string
   folder?: number | string | FolderDocument | null
   sortOrder?: number
+  /**
+   * Restrict which collection types can be added to this folder.
+   * If null/undefined/empty, all collections are allowed.
+   */
+  folderType?: string[] | null
 }
 
 /**
@@ -138,3 +165,4 @@ export type ContextMenuAction =
   | 'expandAll'
   | 'collapseAll'
   | 'regenerateSlugs'
+  | 'urlHistory'

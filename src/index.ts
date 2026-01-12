@@ -1,4 +1,4 @@
-import type { Config, CollectionConfig, Field, TextField, NumberField } from 'payload'
+import type { Config, CollectionConfig, Field, TextField, NumberField, ArrayField } from 'payload'
 import type { PageTreePluginConfig } from './types.js'
 import { createBuildSlugHook } from './hooks/buildSlugFromFolder.js'
 import { createCascadeSlugUpdatesHook } from './hooks/cascadeSlugUpdates.js'
@@ -13,11 +13,16 @@ import {
   createRenameHandler,
   createRegenerateSlugsHandler,
   createMigrateHandler,
+  createRedirectsHandler,
+  createRestoreSlugHandler,
 } from './endpoints/treeOperations.js'
 
 export type { PageTreePluginConfig } from './types.js'
-export type { TreeNode, FolderDocument, PageDocument } from './types.js'
+export type { TreeNode, FolderDocument, PageDocument, SlugHistoryEntry, SlugChangeReason } from './types.js'
 export { getFolderPath, slugify } from './utils/getFolderPath.js'
+export { buildTreeStructure } from './utils/buildTree.js'
+export type { BuildTreeOptions } from './utils/buildTree.js'
+export { getRedirectMap } from './utils/redirectMap.js'
 // Components are exported via /client and /rsc subpaths for proper import map resolution
 
 /**
@@ -32,16 +37,15 @@ export { getFolderPath, slugify } from './utils/getFolderPath.js'
  *
  * export default buildConfig({
  *   plugins: [
- *     pageTreePlugin({
- *       collections: ['pages'],
- *     }),
+ *     // Uses default collections: ['pages', 'posts']
+ *     pageTreePlugin(),
  *   ],
  * })
  * ```
  */
-export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
+export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
   const {
-    collections,
+    collections = ['pages', 'posts'],
     folderSlug = 'payload-folders',
     segmentFieldName = 'pathSegment',
     pageSegmentFieldName = 'pageSegment',
@@ -60,6 +64,18 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
   return (config: Config): Config => {
     // Even if disabled, we need to add fields to maintain schema consistency
     const shouldAddHooks = !disabled
+
+    // Auto-filter collections to only include ones that actually exist in the config
+    // This allows defaulting to ['pages', 'posts'] without errors if 'posts' doesn't exist
+    const existingCollectionSlugs = new Set(
+      (config.collections || []).map(c => c.slug)
+    )
+    const validCollections = collections.filter(slug => existingCollectionSlugs.has(slug))
+
+    // If no valid collections, skip plugin setup but still add folder fields
+    if (validCollections.length === 0) {
+      console.warn('[payload-page-tree] No matching collections found. Plugin will only add folder fields.')
+    }
 
     // Get existing folder config (handle false, undefined, or object)
     const existingFolderConfig =
@@ -106,7 +122,7 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
           // Create cascade hook for folder changes
           const cascadeHook = shouldAddHooks
             ? createCascadeSlugUpdatesHook({
-                collections,
+                collections: validCollections,
                 folderSlug,
                 segmentFieldName,
                 folderFieldName,
@@ -131,8 +147,8 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
     // Process each collection that should have folder-based slugs
     if (config.collections) {
       config.collections = config.collections.map((collection) => {
-        // Skip if this collection isn't in the list
-        if (!collections.includes(collection.slug as string)) {
+        // Skip if this collection isn't in the validated list
+        if (!validCollections.includes(collection.slug as string)) {
           return collection
         }
 
@@ -171,6 +187,46 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
           },
         }
 
+        // Add slugHistory field for audit trail (max 20 entries)
+        const slugHistoryField: ArrayField = {
+          name: 'slugHistory',
+          type: 'array',
+          maxRows: 20,
+          admin: {
+            readOnly: true,
+            position: 'sidebar',
+            description: 'Previous URLs for this page (auto-tracked)',
+          },
+          fields: [
+            {
+              name: 'slug',
+              type: 'text',
+              required: true,
+            },
+            {
+              name: 'changedAt',
+              type: 'date',
+              required: true,
+              admin: {
+                date: {
+                  displayFormat: 'MMM d, yyyy HH:mm',
+                },
+              },
+            },
+            {
+              name: 'reason',
+              type: 'select',
+              options: [
+                { label: 'Moved', value: 'move' },
+                { label: 'Renamed', value: 'rename' },
+                { label: 'Regenerated', value: 'regenerate' },
+                { label: 'Restored', value: 'restore' },
+                { label: 'Manual', value: 'manual' },
+              ],
+            },
+          ],
+        }
+
         // Find and modify the slug field to be read-only
         const modifiedFields: Field[] = updatedCollection.fields.map((field) => {
           if ('name' in field && field.name === 'slug' && field.type === 'text') {
@@ -187,8 +243,8 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
           return field
         })
 
-        // Add the pageSegment and sortOrder fields
-        updatedCollection.fields = [...modifiedFields, pageSegmentField, pageSortOrderField]
+        // Add the pageSegment, sortOrder, and slugHistory fields
+        updatedCollection.fields = [...modifiedFields, pageSegmentField, pageSortOrderField, slugHistoryField]
 
         // Add beforeChange hook for slug generation
         if (shouldAddHooks) {
@@ -207,6 +263,15 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
 
         return updatedCollection
       })
+    }
+
+    // Store plugin config for admin view to access
+    config.custom = {
+      ...config.custom,
+      pageTree: {
+        collections: validCollections,
+        folderSlug,
+      },
     }
 
     // Register admin view if enabled
@@ -233,7 +298,7 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
     }
 
     // Register API endpoints for tree operations
-    const endpointOptions = { collections, folderSlug }
+    const endpointOptions = { collections: validCollections, folderSlug }
     config.endpoints = [
       ...(config.endpoints || []),
       {
@@ -280,6 +345,16 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig) {
         path: '/page-tree/migrate',
         method: 'post',
         handler: createMigrateHandler(endpointOptions),
+      },
+      {
+        path: '/page-tree/redirects',
+        method: 'get',
+        handler: createRedirectsHandler(endpointOptions),
+      },
+      {
+        path: '/page-tree/restore-slug',
+        method: 'post',
+        handler: createRestoreSlugHandler(endpointOptions),
       },
     ]
 

@@ -311,6 +311,19 @@ function ContextMenuOverlay({
             >
               Rename
             </MenuItem>
+            {node.slugHistory && node.slugHistory.length > 0 && (
+              <MenuItem
+                icon={
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                }
+                onClick={() => onAction('urlHistory')}
+              >
+                URL History
+              </MenuItem>
+            )}
             <MenuDivider />
             {node.status === 'draft' ? (
               <MenuItem

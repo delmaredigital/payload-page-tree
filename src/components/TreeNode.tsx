@@ -72,7 +72,10 @@ export function TreeNode({ node, style, dragHandle, adminRoute, onAction, puckEn
           ? 'var(--theme-elevation-100)'
           : isHovered
             ? 'var(--theme-elevation-50)'
-            : 'transparent',
+            : isFolder
+              ? 'var(--theme-elevation-50, rgba(0,0,0,0.02))'
+              : 'transparent',
+        borderLeft: isFolder ? '3px solid var(--theme-elevation-200, #e5e5e5)' : '3px solid transparent',
         transition: 'background-color 0.1s ease',
         outline: 'none',
       }}

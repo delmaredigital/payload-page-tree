@@ -4,11 +4,15 @@ A Payload CMS plugin that extends the built-in folders feature to auto-generate 
 
 ## Features
 
-- Uses Payload's native folders feature - get the nice folder UI for free
-- Auto-generates hierarchical slugs from folder paths (e.g., `/appeals/2024/spring-campaign`)
-- Cascades URL updates when folders are renamed or moved
-- No "dummy pages" needed - folders are purely organizational
-- Works alongside other plugins (Puck, SEO, etc.)
+- **Zero config** - works out of the box with `pages` and `posts` collections (auto-detects what exists)
+- **Visual tree view** - drag-and-drop reorganization in admin panel
+- **Auto-generated slugs** - hierarchical URLs from folder paths (e.g., `/appeals/2024/spring-campaign`)
+- **URL history tracking** - automatic audit trail of previous URLs with restore capability
+- **URL preservation** - choose to keep or update URLs when moving content
+- **Collection switching** - dropdown to filter by collection type (when multiple configured)
+- **Native folders** - extends Payload's built-in folders feature
+- **No dummy pages** - folders are purely organizational
+- **Plugin friendly** - works alongside Puck, SEO, and other plugins
 
 ## Installation
 
@@ -34,10 +38,18 @@ export default buildConfig({
     },
   ],
   plugins: [
-    pageTreePlugin({
-      collections: ['pages'],
-    }),
+    pageTreePlugin(),  // Auto-detects 'pages' and 'posts' if they exist
   ],
+})
+```
+
+The plugin defaults to `['pages', 'posts']` but **automatically filters to only collections that exist** in your config. If you only have a `pages` collection, `posts` is silently ignored.
+
+### Custom Collections
+
+```typescript
+pageTreePlugin({
+  collections: ['pages', 'articles', 'landing-pages'],  // Only existing ones are used
 })
 ```
 
@@ -66,20 +78,26 @@ Page in "2024" folder with pageSegment "spring-campaign":
 
 ```typescript
 pageTreePlugin({
-  // Required: Collections to add folder-based slugs to
-  collections: ['pages'],
+  // Collections to add folder-based slugs to (default: ['pages', 'posts'])
+  collections: ['pages', 'posts'],
 
-  // Optional: Custom folder collection slug (default: 'payload-folders')
+  // Custom folder collection slug (default: 'payload-folders')
   folderSlug: 'payload-folders',
 
-  // Optional: Field name for folder path segment (default: 'pathSegment')
+  // Field name for folder path segment (default: 'pathSegment')
   segmentFieldName: 'pathSegment',
 
-  // Optional: Field name for page segment (default: 'pageSegment')
+  // Field name for page segment (default: 'pageSegment')
   pageSegmentFieldName: 'pageSegment',
 
-  // Optional: Disable plugin while preserving schema (default: false)
+  // Disable plugin hooks while preserving schema (default: false)
   disabled: false,
+
+  // Admin view configuration
+  adminView: {
+    enabled: true,           // Show tree view in admin (default: true)
+    path: '/page-tree',      // URL path for tree view (default: '/page-tree')
+  },
 })
 ```
 
@@ -102,9 +120,163 @@ export default async function Page({ params }: { params: { slug: string[] } }) {
 }
 ```
 
+## Tree View
+
+The plugin adds a visual tree view at `/admin/page-tree` for managing your page hierarchy:
+
+- **Drag-and-drop** to reorganize pages and folders
+- **Collection dropdown** - switch between page types (only appears when multiple collections are configured and exist)
+- **Context menu** (right-click) for actions like edit, duplicate, publish/unpublish, delete
+- **URL preservation** - when moving folders, choose to keep existing URLs or update them
+- **Regenerate URLs** - manually regenerate slugs for a folder and all its contents
+- **Visual distinction** - folders have subtle background styling to differentiate from pages
+
 ## Cascading Updates
 
-When you rename a folder's `pathSegment` or move it to a different parent, all pages in that folder (and subfolders) automatically have their slugs updated.
+When you rename a folder's `pathSegment` or move a folder:
+- **Keep existing URLs**: Pages stay at their current URLs (default for moves)
+- **Update URLs**: All pages in that folder (and subfolders) get new slugs based on the new path
+
+This gives you control over URL changes - useful when you want to reorganize content without breaking existing links.
+
+## URL History & Redirects
+
+The plugin automatically tracks URL changes for SEO and redirect management:
+
+### Automatic History Tracking
+
+Every page has a `slugHistory` field that records the last 20 URL changes:
+
+```typescript
+{
+  slug: 'marketing/about-us',
+  slugHistory: [
+    { slug: 'about-us', changedAt: '2024-01-15T...', reason: 'move' },
+    { slug: 'company/about', changedAt: '2024-06-01T...', reason: 'rename' }
+  ]
+}
+```
+
+Changes are tracked automatically when:
+- A page is moved to a different folder (reason: `move`)
+- A parent folder is renamed (reason: `rename`)
+- URLs are regenerated via context menu (reason: `regenerate`)
+- A previous URL is restored (reason: `restore`)
+
+### Generating Redirects
+
+Use the redirects endpoint to build redirect maps for your frontend:
+
+```typescript
+// Fetch all redirect mappings
+const res = await fetch('/api/page-tree/redirects?collection=pages')
+const { redirects } = await res.json()
+
+// Returns:
+// {
+//   "redirects": [
+//     { "from": "/about-us", "to": "/marketing/about-us" },
+//     { "from": "/company/about", "to": "/marketing/about-us" }
+//   ]
+// }
+```
+
+Example Next.js middleware:
+
+```typescript
+// middleware.ts
+import { NextResponse } from 'next/server'
+
+export async function middleware(request: NextRequest) {
+  const res = await fetch(`${request.nextUrl.origin}/api/page-tree/redirects?collection=pages`)
+  const { redirects } = await res.json()
+
+  const redirect = redirects.find(r => r.from === request.nextUrl.pathname)
+  if (redirect) {
+    return NextResponse.redirect(new URL(redirect.to, request.url), 301)
+  }
+}
+```
+
+### Restoring Previous URLs
+
+Right-click a page in the tree view and select "URL History" to:
+- View all previous URLs with timestamps and reasons
+- Restore any previous URL (current URL is added to history)
+
+## Adding to Existing Projects
+
+The plugin safely handles existing content:
+
+1. **Existing pages keep their slugs** - the plugin only generates slugs for new pages or when explicitly requested
+2. **No schema conflicts** - `pathSegment` is optional, so existing folders work without modification
+3. **Migrate when ready** - use the "Regenerate URLs" action to update slugs for specific folders
+
+## Extensibility
+
+### Using Outside Payload Admin
+
+The tree components use Payload's CSS variables for theming. When using components outside the admin panel, import the default theme:
+
+```typescript
+import '@delmaredigital/payload-page-tree/theme.css'
+```
+
+Or map to your own design system (e.g., shadcn/ui):
+
+```css
+.page-tree-wrapper {
+  --theme-bg: hsl(var(--background));
+  --theme-input-bg: hsl(var(--background));
+  --theme-elevation-0: hsl(var(--background));
+  --theme-elevation-50: hsl(var(--muted));
+  --theme-elevation-100: hsl(var(--border));
+  --theme-elevation-150: hsl(var(--border));
+  --theme-elevation-400: hsl(var(--muted-foreground));
+  --theme-elevation-500: hsl(var(--muted-foreground));
+  --theme-elevation-600: hsl(var(--foreground));
+  --theme-elevation-700: hsl(var(--foreground));
+  --theme-elevation-800: hsl(var(--foreground));
+  --theme-success-500: hsl(var(--primary));
+  --theme-error-500: hsl(var(--destructive));
+  --theme-error-50: hsl(var(--destructive) / 0.1);
+}
+```
+
+### Custom Edit URLs
+
+Customize where "Edit" links navigate (useful for visual editors like Puck):
+
+```typescript
+import { PageTreeClient, GetEditUrlFn } from '@delmaredigital/payload-page-tree/client'
+
+const getEditUrl: GetEditUrlFn = (collection, id, adminRoute) => {
+  // Custom URL for your visual editor
+  return `${adminRoute}/my-editor/${collection}/${id}`
+}
+
+// Pass to PageTreeClient component
+<PageTreeClient getEditUrl={getEditUrl} ... />
+```
+
+### Building Custom Tree Views
+
+Use `buildTreeStructure` to create tree data for custom UIs:
+
+```typescript
+import { buildTreeStructure, TreeNode } from '@delmaredigital/payload-page-tree'
+
+// Fetch folders and pages from Payload
+const folders = await payload.find({ collection: 'payload-folders', limit: 0 })
+const pages = await payload.find({ collection: 'pages', limit: 0 })
+
+// Build tree structure
+const tree: TreeNode[] = buildTreeStructure(
+  folders.docs,
+  pages.docs.map(p => ({ ...p, _collection: 'pages' })),
+  { collections: ['pages'] }
+)
+```
 
 ## License
 

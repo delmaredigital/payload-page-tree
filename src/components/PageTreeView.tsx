@@ -1,151 +1,11 @@
 import type { AdminViewProps, Locale } from 'payload'
-import type { TreeNode, FolderDocument, PageDocument } from '../types.js'
+import type { FolderDocument, PageDocument } from '../types.js'
 import { PageTreeClient } from './PageTreeClient.js'
 import { DefaultTemplate } from '@payloadcms/next/templates'
 import { getVisibleEntities } from '@payloadcms/ui/shared'
+import { buildTreeStructure } from '../utils/buildTree.js'
 
-interface PageTreeViewProps extends AdminViewProps {
-  collections?: string[]
-  folderSlug?: string
-}
-
-interface BuildTreeOptions {
-  collections: string[]
-}
-
-/**
- * Build tree structure from folders and pages
- * Note: IDs are prefixed with 'folder-' or 'page-' to ensure uniqueness
- * since folders and pages come from different collections and may have the same numeric ID
- */
-function buildTreeStructure(
-  folders: FolderDocument[],
-  pages: Array<PageDocument & { _collection?: string }>,
-  options: BuildTreeOptions,
-): TreeNode[] {
-  // Create a map of folder IDs to their tree nodes
-  // Key is the raw folder ID (without prefix) for easy lookup
-  const folderMap = new Map<string, TreeNode>()
-
-  // First pass: create folder nodes
-  for (const folder of folders) {
-    const rawId = String(folder.id)
-    const treeId = `folder-${rawId}` // Prefix for unique tree keys
-    const parentRawId = getFolderIdAsString(folder.folder)
-    folderMap.set(rawId, {
-      id: treeId,
-      type: 'folder',
-      name: folder.name,
-      pathSegment: folder.pathSegment,
-      children: [],
-      pageCount: 0,
-      folderId: parentRawId ? `folder-${parentRawId}` : null,
-      sortOrder: folder.sortOrder ?? 0,
-      // Store raw ID for API calls
-      rawId: rawId,
-    })
-  }
-
-  // Second pass: build folder hierarchy and count pages
-  const rootFolders: TreeNode[] = []
-
-  for (const folder of folders) {
-    const rawId = String(folder.id)
-    const node = folderMap.get(rawId)!
-    const parentRawId = getFolderIdAsString(folder.folder)
-
-    if (parentRawId && folderMap.has(parentRawId)) {
-      const parent = folderMap.get(parentRawId)!
-      parent.children.push(node)
-    } else {
-      rootFolders.push(node)
-    }
-  }
-
-  // Create page nodes and add to folders or root
-  const rootPages: TreeNode[] = []
-
-  for (const page of pages) {
-    const rawId = String(page.id)
-    const treeId = `page-${rawId}` // Prefix for unique tree keys
-    const folderRawId = getFolderIdAsString(page.folder)
-    const pageNode: TreeNode = {
-      id: treeId,
-      type: 'page',
-      name: page.title || `Page ${page.id}`,
-      slug: page.slug,
-      status: page._status,
-      children: [],
-      pageCount: 0,
-      folderId: folderRawId ? `folder-${folderRawId}` : null,
-      sortOrder: page.sortOrder ?? 0,
-      collection: page._collection || options.collections[0],
-      // Store raw ID for API calls
-      rawId: rawId,
-    }
-
-    if (folderRawId && folderMap.has(folderRawId)) {
-      const folder = folderMap.get(folderRawId)!
-      folder.children.push(pageNode)
-      // Update page counts up the tree
-      updatePageCounts(folder, folderMap)
-    } else {
-      rootPages.push(pageNode)
-    }
-  }
-
-  // Sort folders and pages within each level by sortOrder, then name
-  const sortNodes = (nodes: TreeNode[]) => {
-    nodes.sort((a, b) => {
-      // First by sortOrder
-      if (a.sortOrder !== b.sortOrder) {
-        return a.sortOrder - b.sortOrder
-      }
-      // Then folders first, then pages
-      if (a.type !== b.type) {
-        return a.type === 'folder' ? -1 : 1
-      }
-      // Then alphabetically by name
-      return a.name.localeCompare(b.name)
-    })
-    // Recursively sort children
-    for (const node of nodes) {
-      if (node.children.length > 0) {
-        sortNodes(node.children)
-      }
-    }
-  }
-
-  const tree = [...rootFolders, ...rootPages]
-  sortNodes(tree)
-
-  return tree
-}
-
-/**
- * Update page counts for a folder and all its ancestors
- */
-function updatePageCounts(
-  node: TreeNode,
-  folderMap: Map<string, TreeNode>,
-) {
-  node.pageCount += 1
-
-  if (node.folderId && folderMap.has(node.folderId)) {
-    updatePageCounts(folderMap.get(node.folderId)!, folderMap)
-  }
-}
-
-/**
- * Extract folder ID from potentially populated field as string
- */
-function getFolderIdAsString(
-  folder: number | string | FolderDocument | null | undefined,
-): string | null {
-  if (!folder) return null
-  if (typeof folder === 'object') return String(folder.id)
-  return String(folder)
-}
+type PageTreeViewProps = AdminViewProps
 
 export async function PageTreeView({
   initPageResult,
@@ -159,12 +19,27 @@ export async function PageTreeView({
   // Get admin route from config
   const adminRoute = req.payload.config.routes?.admin || '/admin'
 
-  // These would typically come from plugin config stored in adminViewProps
-  // For now, use defaults
-  const folderSlug = 'payload-folders'
-  const collections = ['pages']
+  // Get plugin config from payload.config.custom
+  const pageTreeConfig = payload.config.custom?.pageTree as {
+    collections: string[]
+    folderSlug: string
+  } | undefined
 
-  // Fetch all folders
+  // Fallback to defaults if config not found (shouldn't happen if plugin is properly configured)
+  const collections = pageTreeConfig?.collections || ['pages']
+  const folderSlug = pageTreeConfig?.folderSlug || 'payload-folders'
+
+  // Get selected collection from URL params, default to first configured collection
+  const selectedCollection =
+    (searchParams?.collection as string) ||
+    collections[0]
+
+  // Validate selected collection is in configured list
+  const validSelectedCollection = collections.includes(selectedCollection)
+    ? selectedCollection
+    : collections[0]
+
+  // Fetch all folders and filter by folderType for the selected collection
   let folders: FolderDocument[] = []
   try {
     const result = await payload.find({
@@ -172,48 +47,58 @@ export async function PageTreeView({
       limit: 0,
       depth: 1,
     })
-    folders = result.docs as unknown as FolderDocument[]
+    const allFolders = result.docs as unknown as FolderDocument[]
+
+    // Filter folders to only show those that allow the selected collection
+    // A folder allows a collection if:
+    // 1. folderType is null/undefined/empty (allows all collections)
+    // 2. folderType array includes the selected collection
+    folders = allFolders.filter(folder => {
+      if (!folder.folderType || folder.folderType.length === 0) {
+        return true // No restriction, allow all
+      }
+      return folder.folderType.includes(validSelectedCollection)
+    })
   } catch (error) {
     console.error('[payload-page-tree] Error fetching folders:', error)
   }
 
-  // Fetch pages from all configured collections
+  // Fetch pages from ONLY the selected collection
   let allPages: Array<PageDocument & { _collection?: string }> = []
-  for (const collectionSlug of collections) {
-    try {
-      const result = await payload.find({
-        collection: collectionSlug as 'pages',
-        limit: 0,
-        depth: 0,
-      })
-      // Add collection slug to each page for context menu actions
-      const pagesWithCollection = (result.docs as unknown as PageDocument[]).map(page => ({
-        ...page,
-        _collection: collectionSlug,
-      }))
-      allPages = [...allPages, ...pagesWithCollection]
-    } catch (error) {
-      console.error(
-        `[payload-page-tree] Error fetching ${collectionSlug}:`,
-        error,
-      )
-    }
+  try {
+    const result = await payload.find({
+      collection: validSelectedCollection as 'pages',
+      limit: 0,
+      depth: 0,
+    })
+    // Add collection slug to each page for context menu actions
+    const pagesWithCollection = (result.docs as unknown as PageDocument[]).map(page => ({
+      ...page,
+      _collection: validSelectedCollection,
+    }))
+    allPages = pagesWithCollection
+  } catch (error) {
+    console.error(
+      `[payload-page-tree] Error fetching ${validSelectedCollection}:`,
+      error,
+    )
   }
 
   // Build tree structure
-  const treeData = buildTreeStructure(folders, allPages, { collections })
+  const treeData = buildTreeStructure(folders, allPages, { collections: [validSelectedCollection] })
 
   // Get visible entities for the sidebar navigation
   const visibleEntities = getVisibleEntities({ req })
 
   // Detect if Puck visual editor is installed by checking for puckData field
-  // We check the first collection (typically 'pages')
+  // We check the currently selected collection
+  // Check both top-level fields and flattenedFields (handles SEO plugin tabbedUI wrapping)
   let puckEnabled = false
-  const primaryCollection = payload.config.collections.find(c => c.slug === collections[0])
-  if (primaryCollection) {
-    const hasPuckData = primaryCollection.fields.some(
+  const currentCollection = payload.config.collections.find(c => c.slug === validSelectedCollection)
+  if (currentCollection) {
+    const hasPuckData = currentCollection.fields.some(
       f => 'name' in f && f.name === 'puckData'
-    )
+    ) || currentCollection.flattenedFields?.some(f => f.name === 'puckData')
     puckEnabled = hasPuckData
   }
 
@@ -261,7 +146,13 @@ export async function PageTreeView({
           </p>
         </div>
 
-        <PageTreeClient treeData={treeData} collections={collections} adminRoute={adminRoute} puckEnabled={puckEnabled} />
+        <PageTreeClient
+          treeData={treeData}
+          collections={collections}
+          selectedCollection={validSelectedCollection}
+          adminRoute={adminRoute}
+          puckEnabled={puckEnabled}
+        />
       </div>
     </DefaultTemplate>
   )

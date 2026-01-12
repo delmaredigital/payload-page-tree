@@ -109,7 +109,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
             folder: newParentId || null,
             sortOrder: newIndex,
           },
-          context: { updateSlugs },
+          context: { updateSlugs, slugChangeReason: 'move' },
         })
       } else {
         // Move page - find which collection it belongs to
@@ -122,7 +122,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
                 folder: newParentId || null,
                 sortOrder: newIndex,
               },
-              context: { updateSlugs },
+              context: { updateSlugs, slugChangeReason: 'move' },
             })
             break // Found and updated
           } catch {
@@ -512,7 +512,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           collection: folderSlug as CollectionSlug,
           id,
           data: { name },
-          context: { updateSlugs },
+          context: { updateSlugs, slugChangeReason: 'rename' },
         })
       } else if (collection) {
         // Get the page to find its parent folder
@@ -548,7 +548,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           collection: collection as CollectionSlug,
           id,
           data: { title: name },
-          context: { updateSlugs },
+          context: { updateSlugs, slugChangeReason: 'rename' },
         })
       }
 
@@ -604,7 +604,7 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
               collection: collectionSlug as CollectionSlug,
               id: page.id,
               data: {}, // Empty update triggers beforeChange hook
-              context: { updateSlugs: true },
+              context: { updateSlugs: true, slugChangeReason: 'regenerate' },
             })
             updatedCount++
           }
@@ -623,7 +623,7 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
               collection: collectionSlug as CollectionSlug,
               id: page.id,
               data: {},
-              context: { updateSlugs: true },
+              context: { updateSlugs: true, slugChangeReason: 'regenerate' },
             })
             updatedCount++
           }
@@ -707,6 +707,166 @@ export function createMigrateHandler(options: TreeEndpointOptions): PayloadHandl
       console.error('[payload-page-tree] Migrate error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Migration failed' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
+ * Get redirect mappings from slugHistory
+ *
+ * Returns all old→new URL mappings for SEO redirect setup.
+ * Query param: collection (required) - which collection to get redirects for
+ */
+export function createRedirectsHandler(options: TreeEndpointOptions): PayloadHandler {
+  const { collections } = options
+
+  return async (req) => {
+    try {
+      if (!req.url) {
+        return Response.json({ error: 'Invalid request URL' }, { status: 400 })
+      }
+      const url = new URL(req.url)
+      const collection = url.searchParams.get('collection')
+
+      if (!collection) {
+        return Response.json({ error: 'Missing required param: collection' }, { status: 400 })
+      }
+
+      if (!collections.includes(collection)) {
+        return Response.json(
+          { error: `Collection "${collection}" is not configured for page-tree` },
+          { status: 400 },
+        )
+      }
+
+      // Find all pages with slug history
+      const { docs: pages } = await req.payload.find({
+        collection: collection as CollectionSlug,
+        where: {
+          slugHistory: { exists: true },
+        },
+        limit: 0,
+        depth: 0,
+      })
+
+      // Build redirect map from slugHistory
+      const redirects: Array<{ from: string; to: string }> = []
+
+      for (const page of pages) {
+        const pageDoc = page as unknown as { slug: string; slugHistory?: Array<{ slug: string }> }
+        if (pageDoc.slug && pageDoc.slugHistory?.length) {
+          for (const entry of pageDoc.slugHistory) {
+            // Only add if the old slug is different from current
+            if (entry.slug && entry.slug !== pageDoc.slug) {
+              // Add leading slash for URL format
+              const from = entry.slug.startsWith('/') ? entry.slug : `/${entry.slug}`
+              const to = pageDoc.slug.startsWith('/') ? pageDoc.slug : `/${pageDoc.slug}`
+              redirects.push({ from, to })
+            }
+          }
+        }
+      }
+
+      return Response.json({
+        redirects,
+        count: redirects.length,
+      })
+    } catch (error) {
+      console.error('[payload-page-tree] Redirects error:', error)
+      return Response.json(
+        { error: error instanceof Error ? error.message : 'Failed to get redirects' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
+ * Restore a previous slug from history
+ *
+ * Body: { id, collection, slug } - the page ID, collection, and slug to restore
+ */
+export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadHandler {
+  const { collections } = options
+
+  return async (req) => {
+    try {
+      const body = (await req.json?.()) as { id: string; collection: string; slug: string }
+
+      if (!body?.id || !body?.collection || !body?.slug) {
+        return Response.json(
+          { error: 'Missing required fields: id, collection, slug' },
+          { status: 400 },
+        )
+      }
+
+      const { id, collection, slug: targetSlug } = body
+
+      if (!collections.includes(collection)) {
+        return Response.json(
+          { error: `Collection "${collection}" is not configured for page-tree` },
+          { status: 400 },
+        )
+      }
+
+      // Get the current page
+      const page = await req.payload.findByID({
+        collection: collection as CollectionSlug,
+        id,
+      })
+
+      const pageDoc = page as unknown as {
+        slug: string
+        slugHistory?: Array<{ slug: string; changedAt: string; reason?: string }>
+        pageSegment?: string
+      }
+
+      // Check if the target slug is in the history
+      const historyEntry = pageDoc.slugHistory?.find((h) => h.slug === targetSlug)
+      if (!historyEntry) {
+        return Response.json(
+          { error: 'Target slug not found in history' },
+          { status: 400 },
+        )
+      }
+
+      // Extract the pageSegment from the target slug (last segment)
+      const segments = targetSlug.split('/')
+      const newPageSegment = segments[segments.length - 1]
+
+      // Build new history: remove the target entry, add current slug
+      const newHistory = [
+        {
+          slug: pageDoc.slug,
+          changedAt: new Date().toISOString(),
+          reason: 'restore' as const,
+        },
+        ...(pageDoc.slugHistory || []).filter((h) => h.slug !== targetSlug),
+      ].slice(0, 20)
+
+      // Update the page with restored slug
+      await req.payload.update({
+        collection: collection as CollectionSlug,
+        id,
+        data: {
+          slug: targetSlug,
+          pageSegment: newPageSegment,
+          slugHistory: newHistory,
+        },
+        // Don't trigger the buildSlug hook - we're setting the slug directly
+        context: { skipSlugGeneration: true },
+      })
+
+      return Response.json({
+        success: true,
+        restoredSlug: targetSlug,
+      })
+    } catch (error) {
+      console.error('[payload-page-tree] Restore slug error:', error)
+      return Response.json(
+        { error: error instanceof Error ? error.message : 'Failed to restore slug' },
         { status: 500 },
       )
     }

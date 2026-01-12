@@ -1,0 +1,63 @@
+/**
+ * Default theme variables for @delmaredigital/payload-page-tree
+ *
+ * These variables are automatically available inside Payload admin.
+ * Import this file when using PageTreeClient outside of Payload admin,
+ * or define your own mappings to your design system.
+ *
+ * Usage:
+ *   import '@delmaredigital/payload-page-tree/theme.css'
+ *
+ * Or override with your design system:
+ *   .page-tree-wrapper {
+ *     --theme-bg: hsl(var(--background));
+ *     --theme-elevation-800: hsl(var(--foreground));
+ *   }
+ */
+
+:root {
+  /* Backgrounds */
+  --theme-bg: #ffffff;
+  --theme-input-bg: #ffffff;
+  --theme-elevation-0: #ffffff;
+  --theme-elevation-50: #fafafa;
+
+  /* Borders & subtle backgrounds */
+  --theme-elevation-100: #f0f0f0;
+  --theme-elevation-150: #e0e0e0;
+  --theme-elevation-200: #d4d4d4;
+
+  /* Text colors (light to dark) */
+  --theme-elevation-400: #9ca3af;
+  --theme-elevation-500: #6b7280;
+  --theme-elevation-600: #4b5563;
+  --theme-elevation-700: #374151;
+  --theme-elevation-800: #1f2937;
+
+  /* Semantic colors */
+  --theme-success-500: #22c55e;
+  --theme-error-500: #ef4444;
+  --theme-error-50: #fef2f2;
+}
+
+/* Dark mode example (uncomment and customize as needed) */
+/*
+@media (prefers-color-scheme: dark) {
+  :root {
+    --theme-bg: #1f2937;
+    --theme-input-bg: #374151;
+    --theme-elevation-0: #111827;
+    --theme-elevation-50: #1f2937;
+    --theme-elevation-100: #374151;
+    --theme-elevation-150: #4b5563;
+    --theme-elevation-400: #9ca3af;
+    --theme-elevation-500: #d1d5db;
+    --theme-elevation-600: #e5e7eb;
+    --theme-elevation-700: #f3f4f6;
+    --theme-elevation-800: #f9fafb;
+    --theme-success-500: #22c55e;
+    --theme-error-500: #ef4444;
+    --theme-error-50: #450a0a;
+  }
+}
+*/

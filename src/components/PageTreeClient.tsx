@@ -7,12 +7,37 @@ import type { TreeNode as TreeNodeType, ContextMenuAction } from '../types.js'
 import { TreeNode } from './TreeNode.js'
 import { ContextMenuProvider } from './ContextMenu.js'
 import { ConfirmationModal } from './ConfirmationModal.js'
+import { SlugHistoryModal } from './SlugHistoryModal.js'
+
+/**
+ * Function to generate custom edit URLs for pages
+ * @param collection - The collection slug (e.g., 'pages')
+ * @param id - The raw document ID
+ * @param adminRoute - The admin route prefix (e.g., '/admin')
+ * @returns The full URL path to edit the document
+ */
+export type GetEditUrlFn = (collection: string, id: string, adminRoute: string) => string
 
 interface PageTreeClientProps {
   treeData: TreeNodeType[]
   collections: string[]
+  selectedCollection: string
   adminRoute: string
   puckEnabled?: boolean
+  /**
+   * Custom function to generate edit URLs for pages.
+   * Useful for integrating with visual editors like Puck.
+   * If not provided, uses default Payload collection URLs.
+   */
+  getEditUrl?: GetEditUrlFn
+}
+
+// Helper to format collection slug as display name
+function formatCollectionName(slug: string): string {
+  return slug
+    .split('-')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(' ')
 }
 
 interface PendingMove {
@@ -27,6 +52,10 @@ interface PendingDelete {
   node: TreeNodeType
   pageCount: number
   folderCount: number
+}
+
+interface UrlHistoryState {
+  node: TreeNodeType
 }
 
 // Helper to extract raw database ID from prefixed tree ID
@@ -62,12 +91,21 @@ function countNestedItems(node: TreeNodeType): { pages: number; folders: number 
   return { pages, folders }
 }
 
-export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled = false }: PageTreeClientProps) {
+// Default edit URL generator - uses Puck if enabled, otherwise Payload collection URL
+const defaultGetEditUrl = (collection: string, id: string, adminRoute: string, puckEnabled: boolean): string => {
+  if (puckEnabled) {
+    return `${adminRoute}/puck-editor/${collection}/${id}`
+  }
+  return `${adminRoute}/collections/${collection}/${id}`
+}
+
+export function PageTreeClient({ treeData, collections, selectedCollection, adminRoute, puckEnabled = false, getEditUrl }: PageTreeClientProps) {
   const [data, setData] = useState(treeData)
   const [search, setSearch] = useState('')
   const treeRef = useRef<TreeApi<TreeNodeType>>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
+  const [urlHistory, setUrlHistory] = useState<UrlHistoryState | null>(null)
 
   // API call helper with error handling
   const apiCall = useCallback(async (endpoint: string, options: RequestInit = {}) => {
@@ -113,8 +151,12 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
             updateSlugs,
           }),
         })
-        if (updateSlugs && node.type === 'folder') {
-          toast.success('URLs updated to match new folder location')
+        if (updateSlugs) {
+          if (node.type === 'folder') {
+            toast.success('URLs updated to match new folder location')
+          } else {
+            toast.success('URL updated to match new location')
+          }
         }
       } catch (error) {
         console.error('Move failed:', error)
@@ -150,7 +192,19 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
         }
       }
 
-      // For pages or empty folders, execute immediately
+      // If moving a page to a different folder, show confirmation for slug update
+      if (node.type === 'page') {
+        const currentFolderId = node.folderId
+        const newFolderId = parentId
+
+        // Check if the folder is actually changing
+        if (currentFolderId !== newFolderId) {
+          setPendingMove({ dragIds, parentId, index, node, affectedCount: 1 })
+          return
+        }
+      }
+
+      // For reordering within the same location, execute immediately
       executeMove(dragIds, parentId, index, node)
     },
     [data, executeMove],
@@ -225,30 +279,27 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
       switch (action) {
         case 'edit':
           if (node.collection) {
-            // Use Puck editor if enabled, otherwise use Payload collection editor
-            if (puckEnabled) {
-              window.location.href = `${adminRoute}/puck-editor/${node.collection}/${rawId}`
-            } else {
-              window.location.href = `${adminRoute}/collections/${node.collection}/${rawId}`
-            }
+            const editUrl = getEditUrl
+              ? getEditUrl(node.collection, rawId, adminRoute)
+              : defaultGetEditUrl(node.collection, rawId, adminRoute, puckEnabled)
+            window.location.href = editUrl
           }
           break
 
         case 'editInNewTab':
           if (node.collection) {
-            // Use Puck editor if enabled
-            if (puckEnabled) {
-              window.open(`${adminRoute}/puck-editor/${node.collection}/${rawId}`, '_blank')
-            } else {
-              window.open(`${adminRoute}/collections/${node.collection}/${rawId}`, '_blank')
-            }
+            const editUrl = getEditUrl
+              ? getEditUrl(node.collection, rawId, adminRoute)
+              : defaultGetEditUrl(node.collection, rawId, adminRoute, puckEnabled)
+            window.open(editUrl, '_blank')
           }
           break
 
         case 'editInPayload':
           // Always open in Payload collection editor (for field-level editing)
+          // Hardcoded to /admin since this specifically targets Payload's native admin
           if (node.collection) {
-            window.location.href = `${adminRoute}/collections/${node.collection}/${rawId}`
+            window.location.href = `/admin/collections/${node.collection}/${rawId}`
           }
           break
 
@@ -309,7 +360,7 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
                 type: 'page',
                 name: 'New Page',
                 parentId: pageParentId,
-                collection: collections[0],
+                collection: selectedCollection,
               }),
             })
             if (result.success) {
@@ -400,9 +451,15 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
             }
           }
           break
+
+        case 'urlHistory':
+          if (node.type === 'page' && node.slugHistory && node.slugHistory.length > 0) {
+            setUrlHistory({ node })
+          }
+          break
       }
     },
-    [data, adminRoute, collections, apiCall, puckEnabled],
+    [data, adminRoute, collections, selectedCollection, apiCall, puckEnabled, getEditUrl],
   )
 
   // Execute the actual delete operation
@@ -441,6 +498,44 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
     setPendingDelete(null)
   }, [])
 
+  // Handle URL history restore
+  const handleRestoreSlug = useCallback(
+    async (slug: string) => {
+      if (!urlHistory) return
+
+      const node = urlHistory.node
+      const rawId = getRawId(node)
+
+      try {
+        const result = await apiCall('/page-tree/restore-slug', {
+          method: 'POST',
+          body: JSON.stringify({
+            id: rawId,
+            collection: node.collection,
+            slug,
+          }),
+        })
+
+        if (result.success) {
+          toast.success(`URL restored to /${slug}`)
+          setUrlHistory(null)
+          // Refresh to show updated slug
+          window.location.reload()
+        }
+      } catch (error) {
+        console.error('Restore slug failed:', error)
+        const message = error instanceof Error ? error.message : 'Failed to restore URL'
+        toast.error(message)
+      }
+    },
+    [urlHistory, apiCall],
+  )
+
+  // Close URL history modal
+  const closeUrlHistory = useCallback(() => {
+    setUrlHistory(null)
+  }, [])
+
   // Handle node action from TreeNode component
   const handleNodeAction = useCallback(
     (nodeId: string, action: string) => {
@@ -470,18 +565,26 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
         {/* Move Confirmation Modal */}
         <ConfirmationModal
           isOpen={pendingMove !== null}
-          title="Move Folder"
-          message={`Moving "${pendingMove?.node.name}" - what should happen to page URLs?`}
-          details={`${pendingMove?.affectedCount} page${pendingMove?.affectedCount === 1 ? '' : 's'} in this folder.`}
+          title={pendingMove?.node.type === 'folder' ? 'Move Folder' : 'Move Page'}
+          message={
+            pendingMove?.node.type === 'folder'
+              ? `Moving "${pendingMove?.node.name}" - what should happen to page URLs?`
+              : `Moving "${pendingMove?.node.name}" to a different folder - what should happen to the URL?`
+          }
+          details={
+            pendingMove?.node.type === 'folder'
+              ? `${pendingMove?.affectedCount} page${pendingMove?.affectedCount === 1 ? '' : 's'} in this folder.`
+              : `Current URL: /${pendingMove?.node.slug || ''}`
+          }
           onCancel={cancelMove}
           actions={[
             {
-              label: 'Keep existing URLs',
+              label: 'Keep existing URL',
               onClick: () => confirmMove(false),
               variant: 'secondary',
             },
             {
-              label: 'Update URLs',
+              label: 'Update URL',
               onClick: () => confirmMove(true),
               variant: 'primary',
             },
@@ -507,6 +610,17 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
           onConfirm={confirmDelete}
           onCancel={cancelDelete}
         />
+
+        {/* URL History Modal */}
+        <SlugHistoryModal
+          isOpen={urlHistory !== null}
+          pageName={urlHistory?.node.name || ''}
+          currentSlug={urlHistory?.node.slug || ''}
+          history={urlHistory?.node.slugHistory || []}
+          onRestore={handleRestoreSlug}
+          onClose={closeUrlHistory}
+        />
+
         {/* Header with search and actions */}
         <div
           style={{
@@ -517,6 +631,36 @@ export function PageTreeClient({ treeData, collections, adminRoute, puckEnabled 
             padding: '0 4px',
           }}
         >
+          {/* Collection selector */}
+          {collections.length > 1 && (
+            <select
+              value={selectedCollection}
+              onChange={(e) => {
+                // Navigate to same view with different collection param
+                const url = new URL(window.location.href)
+                url.searchParams.set('collection', e.target.value)
+                window.location.href = url.toString()
+              }}
+              style={{
+                padding: '8px 12px',
+                border: '1px solid var(--theme-elevation-150)',
+                borderRadius: '4px',
+                fontSize: '14px',
+                backgroundColor: 'var(--theme-input-bg)',
+                color: 'var(--theme-elevation-800)',
+                outline: 'none',
+                cursor: 'pointer',
+                minWidth: '140px',
+              }}
+            >
+              {collections.map((col) => (
+                <option key={col} value={col}>
+                  {formatCollectionName(col)}
+                </option>
+              ))}
+            </select>
+          )}
+
           {/* Search input */}
           <div style={{ position: 'relative', flex: 1 }}>
             <svg
