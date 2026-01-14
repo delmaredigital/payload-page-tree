@@ -2,7 +2,31 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [0.3.0] - 2026-01-14
+
+### Added
+
+- **Multi-select drag-and-drop**: Select multiple items with Cmd/Ctrl+click, then drag to move all at once
+- **Bulk URL confirmation**: When moving multiple items that need URL updates, "Update All URLs" / "Keep All URLs" buttons for batch confirmation
+- **"Move to..." action**: Right-click context menu option to select destination folder without dragging - useful for large trees
+- **Sorting options**: Sort tree by name (A-Z, Z-A), slug, or status (published first). Drag-drop is disabled while sorting is active
+- **Folder select modal**: New modal component (`FolderSelectModal`) for selecting destination folders with expandable tree view
+
+### Changed
+
+- **Tree node layout**: Restructured with fixed-width columns for consistent alignment (slug: 180px, status: 70px, actions: 88px)
+- **Always-visible actions**: Action buttons (edit, copy, view, delete) now always visible at reduced opacity instead of appearing on hover
+- **Nav link grouping**: Page Tree nav link now uses `NavGroup` wrapper with "Manage Pages" label
+
+### Fixed
+
+- **Folder deletion**: Fixed bug where deleting folders returned success but didn't actually delete
+- **Delete performance**: Optimized recursive delete with parallel batch operations to avoid database transaction timeouts
+- **Page not found handling**: Delete endpoint now returns proper 404 when page isn't found in any collection
+
+---
+
+## [0.2.0] - 2026-01-13
 
 ### Added
 

@@ -166,3 +166,4 @@ export type ContextMenuAction =
   | 'collapseAll'
   | 'regenerateSlugs'
   | 'urlHistory'
+  | 'moveTo'

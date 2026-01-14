@@ -176,6 +176,18 @@ function ContextMenuOverlay({
             >
               Rename
             </MenuItem>
+            <MenuItem
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  <path d="M12 11v6" />
+                  <path d="M9 14l3-3 3 3" />
+                </svg>
+              }
+              onClick={() => onAction('moveTo')}
+            >
+              Move to...
+            </MenuItem>
             <MenuDivider />
             <MenuItem
               icon={
@@ -310,6 +322,18 @@ function ContextMenuOverlay({
               onClick={() => onAction('rename')}
             >
               Rename
+            </MenuItem>
+            <MenuItem
+              icon={
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  <path d="M12 11v6" />
+                  <path d="M9 14l3-3 3 3" />
+                </svg>
+              }
+              onClick={() => onAction('moveTo')}
+            >
+              Move to...
             </MenuItem>
             {node.slugHistory && node.slugHistory.length > 0 && (
               <MenuItem

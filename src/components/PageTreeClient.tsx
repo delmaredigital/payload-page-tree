@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useMemo } from 'react'
 import { Tree, type TreeApi } from 'react-arborist'
 import { Toaster, toast } from 'sonner'
 import type { TreeNode as TreeNodeType, ContextMenuAction } from '../types.js'
@@ -8,6 +8,7 @@ import { TreeNode } from './TreeNode.js'
 import { ContextMenuProvider } from './ContextMenu.js'
 import { ConfirmationModal } from './ConfirmationModal.js'
 import { SlugHistoryModal } from './SlugHistoryModal.js'
+import { FolderSelectModal } from './FolderSelectModal.js'
 
 /**
  * Function to generate custom edit URLs for pages
@@ -47,6 +48,29 @@ interface PendingMove {
   node: TreeNodeType
   affectedCount: number
 }
+
+interface BulkMoveItem {
+  dragId: string
+  node: TreeNodeType
+  parentId: string | null
+  index: number
+  requiresConfirmation: boolean
+  affectedCount: number
+}
+
+interface PendingBulkMove {
+  items: BulkMoveItem[]
+  currentIndex: number
+  parentId: string | null
+  baseIndex: number
+}
+
+interface MoveToState {
+  nodes: TreeNodeType[]
+  excludeIds: string[]
+}
+
+type SortOption = 'default' | 'name-asc' | 'name-desc' | 'slug-asc' | 'slug-desc' | 'status'
 
 interface PendingDelete {
   node: TreeNodeType
@@ -91,6 +115,18 @@ function countNestedItems(node: TreeNodeType): { pages: number; folders: number 
   return { pages, folders }
 }
 
+// Helper to get all child folder IDs (prevents moving folder into its own children)
+function getAllChildFolderIds(node: TreeNodeType): string[] {
+  const ids: string[] = []
+  for (const child of node.children) {
+    if (child.type === 'folder') {
+      ids.push(child.id)
+      ids.push(...getAllChildFolderIds(child))
+    }
+  }
+  return ids
+}
+
 // Default edit URL generator - uses Puck if enabled, otherwise Payload collection URL
 const defaultGetEditUrl = (collection: string, id: string, adminRoute: string, puckEnabled: boolean): string => {
   if (puckEnabled) {
@@ -99,13 +135,56 @@ const defaultGetEditUrl = (collection: string, id: string, adminRoute: string, p
   return `${adminRoute}/collections/${collection}/${id}`
 }
 
+// Sort tree data recursively
+function sortTreeData(nodes: TreeNodeType[], sortOption: SortOption): TreeNodeType[] {
+  if (sortOption === 'default') return nodes
+
+  const compare = (a: TreeNodeType, b: TreeNodeType): number => {
+    // Folders always come first
+    if (a.type !== b.type) {
+      return a.type === 'folder' ? -1 : 1
+    }
+
+    switch (sortOption) {
+      case 'name-asc':
+        return a.name.localeCompare(b.name)
+      case 'name-desc':
+        return b.name.localeCompare(a.name)
+      case 'slug-asc':
+        return (a.slug || '').localeCompare(b.slug || '')
+      case 'slug-desc':
+        return (b.slug || '').localeCompare(a.slug || '')
+      case 'status':
+        // Published first, then draft
+        const statusA = a.status === 'published' ? 0 : 1
+        const statusB = b.status === 'published' ? 0 : 1
+        return statusA - statusB || a.name.localeCompare(b.name)
+      default:
+        return 0
+    }
+  }
+
+  return nodes
+    .map(node => ({
+      ...node,
+      children: sortTreeData(node.children, sortOption),
+    }))
+    .sort(compare)
+}
+
 export function PageTreeClient({ treeData, collections, selectedCollection, adminRoute, puckEnabled = false, getEditUrl }: PageTreeClientProps) {
   const [data, setData] = useState(treeData)
   const [search, setSearch] = useState('')
+  const [sortOption, setSortOption] = useState<SortOption>('default')
   const treeRef = useRef<TreeApi<TreeNodeType>>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+  const [pendingBulkMove, setPendingBulkMove] = useState<PendingBulkMove | null>(null)
+  const [moveToModal, setMoveToModal] = useState<MoveToState | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [urlHistory, setUrlHistory] = useState<UrlHistoryState | null>(null)
+
+  // Compute sorted data
+  const sortedData = useMemo(() => sortTreeData(data, sortOption), [data, sortOption])
 
   // API call helper with error handling
   const apiCall = useCallback(async (endpoint: string, options: RequestInit = {}) => {
@@ -168,7 +247,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
     [data, treeData, apiCall],
   )
 
-  // Handle drag-and-drop move
+  // Handle drag-and-drop move (supports multi-select)
   const handleMove = useCallback(
     ({
       dragIds,
@@ -179,33 +258,97 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
       parentId: string | null
       index: number
     }) => {
-      const id = dragIds[0]
-      const node = findNode(data, id)
-      if (!node) return
+      // Single item move - use original flow for backward compatibility
+      if (dragIds.length === 1) {
+        const id = dragIds[0]
+        const node = findNode(data, id)
+        if (!node) return
 
-      // If moving a folder, show confirmation with affected page count
-      if (node.type === 'folder') {
-        const { pages } = countNestedItems(node)
-        if (pages > 0) {
-          setPendingMove({ dragIds, parentId, index, node, affectedCount: pages })
-          return
+        // If moving a folder, show confirmation with affected page count
+        if (node.type === 'folder') {
+          const { pages } = countNestedItems(node)
+          if (pages > 0) {
+            setPendingMove({ dragIds, parentId, index, node, affectedCount: pages })
+            return
+          }
         }
+
+        // If moving a page to a different folder, show confirmation for slug update
+        if (node.type === 'page') {
+          const currentFolderId = node.folderId
+          const newFolderId = parentId
+
+          // Check if the folder is actually changing
+          if (currentFolderId !== newFolderId) {
+            setPendingMove({ dragIds, parentId, index, node, affectedCount: 1 })
+            return
+          }
+        }
+
+        // For reordering within the same location, execute immediately
+        executeMove(dragIds, parentId, index, node)
+        return
       }
 
-      // If moving a page to a different folder, show confirmation for slug update
-      if (node.type === 'page') {
+      // Multi-select move - process all items
+      const itemsToMove: BulkMoveItem[] = []
+
+      for (let i = 0; i < dragIds.length; i++) {
+        const node = findNode(data, dragIds[i])
+        if (!node) continue
+
         const currentFolderId = node.folderId
-        const newFolderId = parentId
+        const folderChanging = currentFolderId !== parentId
 
-        // Check if the folder is actually changing
-        if (currentFolderId !== newFolderId) {
-          setPendingMove({ dragIds, parentId, index, node, affectedCount: 1 })
-          return
+        let requiresConfirmation = false
+        let affectedCount = 0
+
+        if (node.type === 'folder') {
+          const { pages } = countNestedItems(node)
+          requiresConfirmation = pages > 0 && folderChanging
+          affectedCount = pages
+        } else if (node.type === 'page') {
+          requiresConfirmation = folderChanging
+          affectedCount = 1
         }
+
+        itemsToMove.push({
+          dragId: dragIds[i],
+          node,
+          parentId,
+          index: index + i,
+          requiresConfirmation,
+          affectedCount,
+        })
       }
 
-      // For reordering within the same location, execute immediately
-      executeMove(dragIds, parentId, index, node)
+      if (itemsToMove.length === 0) return
+
+      // Check if any items need confirmation
+      const needsConfirmation = itemsToMove.some(item => item.requiresConfirmation)
+
+      if (!needsConfirmation) {
+        // Execute all moves immediately
+        for (const item of itemsToMove) {
+          executeMove([item.dragId], item.parentId, item.index, item.node, false)
+        }
+        return
+      }
+
+      // Start bulk move confirmation flow - find first item needing confirmation
+      const firstConfirmIndex = itemsToMove.findIndex(item => item.requiresConfirmation)
+
+      // Execute items before the first confirmation
+      for (let i = 0; i < firstConfirmIndex; i++) {
+        executeMove([itemsToMove[i].dragId], itemsToMove[i].parentId, itemsToMove[i].index, itemsToMove[i].node, false)
+      }
+
+      setPendingBulkMove({
+        items: itemsToMove,
+        currentIndex: firstConfirmIndex,
+        parentId,
+        baseIndex: index,
+      })
     },
     [data, executeMove],
   )
@@ -230,6 +373,56 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
   // Cancel move operation
   const cancelMove = useCallback(() => {
     setPendingMove(null)
+  }, [])
+
+  // Confirm single item in bulk move
+  const confirmBulkMoveItem = useCallback(
+    (updateSlugs: boolean) => {
+      if (!pendingBulkMove) return
+
+      const currentItem = pendingBulkMove.items[pendingBulkMove.currentIndex]
+      executeMove([currentItem.dragId], currentItem.parentId, currentItem.index, currentItem.node, updateSlugs)
+
+      // Find next item that needs confirmation
+      let nextIndex = pendingBulkMove.currentIndex + 1
+      while (nextIndex < pendingBulkMove.items.length) {
+        const item = pendingBulkMove.items[nextIndex]
+        if (item.requiresConfirmation) {
+          setPendingBulkMove({ ...pendingBulkMove, currentIndex: nextIndex })
+          return
+        }
+        // Execute non-confirmation items automatically
+        executeMove([item.dragId], item.parentId, item.index, item.node, false)
+        nextIndex++
+      }
+
+      // All done
+      setPendingBulkMove(null)
+    },
+    [pendingBulkMove, executeMove],
+  )
+
+  // Confirm all remaining items in bulk move
+  const confirmBulkMoveAll = useCallback(
+    (updateSlugs: boolean) => {
+      if (!pendingBulkMove) return
+
+      // Process all remaining items from current index
+      for (let i = pendingBulkMove.currentIndex; i < pendingBulkMove.items.length; i++) {
+        const item = pendingBulkMove.items[i]
+        // Apply updateSlugs to items that need confirmation, false to others
+        const shouldUpdateSlugs = item.requiresConfirmation ? updateSlugs : false
+        executeMove([item.dragId], item.parentId, item.index, item.node, shouldUpdateSlugs)
+      }
+
+      setPendingBulkMove(null)
+    },
+    [pendingBulkMove, executeMove],
+  )
+
+  // Cancel bulk move operation
+  const cancelBulkMove = useCallback(() => {
+    setPendingBulkMove(null)
   }, [])
 
   // Handle rename
@@ -457,6 +650,29 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
             setUrlHistory({ node })
           }
           break
+
+        case 'moveTo': {
+          // Get all selected nodes from react-arborist (or just the right-clicked node)
+          const selectedIds = treeRef.current?.selectedIds || new Set([node.id])
+          const selectedNodes = Array.from(selectedIds)
+            .map(id => findNode(data, id))
+            .filter((n): n is TreeNodeType => n !== null)
+
+          // If clicked node is not in selection, use just the clicked node
+          const nodesToMove = selectedIds.has(node.id) ? selectedNodes : [node]
+
+          // Calculate excluded folder IDs (can't move folder into itself or children)
+          const excludeIds: string[] = []
+          nodesToMove.forEach(n => {
+            if (n.type === 'folder') {
+              excludeIds.push(n.id)
+              excludeIds.push(...getAllChildFolderIds(n))
+            }
+          })
+
+          setMoveToModal({ nodes: nodesToMove, excludeIds })
+          break
+        }
       }
     },
     [data, adminRoute, collections, selectedCollection, apiCall, puckEnabled, getEditUrl],
@@ -536,6 +752,88 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
     setUrlHistory(null)
   }, [])
 
+  // Handle folder selection from Move To modal
+  const handleMoveToSelect = useCallback(
+    (destinationFolderId: string | null) => {
+      if (!moveToModal) return
+
+      // Build move items (same structure as drag-drop)
+      const itemsToMove: BulkMoveItem[] = moveToModal.nodes.map((node, i) => {
+        const currentFolderId = node.folderId ?? null
+        const folderChanging = currentFolderId !== destinationFolderId
+
+        let requiresConfirmation = false
+        let affectedCount = 0
+
+        if (node.type === 'folder') {
+          const { pages } = countNestedItems(node)
+          requiresConfirmation = pages > 0 && folderChanging
+          affectedCount = pages
+        } else if (node.type === 'page') {
+          requiresConfirmation = folderChanging
+          affectedCount = 1
+        }
+
+        return {
+          dragId: node.id,
+          node,
+          parentId: destinationFolderId,
+          index: i,
+          requiresConfirmation,
+          affectedCount,
+        }
+      })
+
+      // Close folder selection modal
+      setMoveToModal(null)
+
+      // Check if any items need confirmation
+      const needsConfirmation = itemsToMove.some(item => item.requiresConfirmation)
+
+      if (!needsConfirmation) {
+        // Execute all moves immediately
+        for (const item of itemsToMove) {
+          executeMove([item.dragId], item.parentId, item.index, item.node, false)
+        }
+        return
+      }
+
+      // Start confirmation flow
+      if (itemsToMove.length === 1) {
+        // Single item - use regular move confirmation
+        const item = itemsToMove[0]
+        setPendingMove({
+          dragIds: [item.dragId],
+          parentId: item.parentId,
+          index: item.index,
+          node: item.node,
+          affectedCount: item.affectedCount,
+        })
+      } else {
+        // Multiple items - use bulk move confirmation
+        const firstConfirmIndex = itemsToMove.findIndex(item => item.requiresConfirmation)
+
+        // Execute items before the first confirmation
+        for (let i = 0; i < firstConfirmIndex; i++) {
+          executeMove([itemsToMove[i].dragId], itemsToMove[i].parentId, itemsToMove[i].index, itemsToMove[i].node, false)
+        }
+
+        setPendingBulkMove({
+          items: itemsToMove,
+          currentIndex: firstConfirmIndex,
+          parentId: destinationFolderId,
+          baseIndex: 0,
+        })
+      }
+    },
+    [moveToModal, executeMove],
+  )
+
+  // Cancel Move To modal
+  const cancelMoveToModal = useCallback(() => {
+    setMoveToModal(null)
+  }, [])
+
   // Handle node action from TreeNode component
   const handleNodeAction = useCallback(
     (nodeId: string, action: string) => {
@@ -562,7 +860,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
       />
 
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-        {/* Move Confirmation Modal */}
+        {/* Move Confirmation Modal (single item) */}
         <ConfirmationModal
           isOpen={pendingMove !== null}
           title={pendingMove?.node.type === 'folder' ? 'Move Folder' : 'Move Page'}
@@ -590,6 +888,52 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
             },
           ]}
         />
+
+        {/* Bulk Move Confirmation Modal */}
+        {pendingBulkMove && (() => {
+          const currentItem = pendingBulkMove.items[pendingBulkMove.currentIndex]
+          const confirmCount = pendingBulkMove.items.filter(i => i.requiresConfirmation).length
+          const currentConfirmNumber = pendingBulkMove.items.slice(0, pendingBulkMove.currentIndex + 1).filter(i => i.requiresConfirmation).length
+          const remainingCount = confirmCount - currentConfirmNumber + 1
+
+          return (
+            <ConfirmationModal
+              isOpen={true}
+              title={`Move ${pendingBulkMove.items.length} Items`}
+              message={`Moving "${currentItem.node.name}" (${currentConfirmNumber} of ${confirmCount} requiring confirmation)`}
+              details={
+                currentItem.node.type === 'folder'
+                  ? `Contains ${currentItem.affectedCount} page${currentItem.affectedCount === 1 ? '' : 's'}.`
+                  : `Current URL: /${currentItem.node.slug || ''}`
+              }
+              onCancel={cancelBulkMove}
+              actions={[
+                {
+                  label: 'Keep existing URL',
+                  onClick: () => confirmBulkMoveItem(false),
+                  variant: 'secondary',
+                },
+                {
+                  label: 'Update URL',
+                  onClick: () => confirmBulkMoveItem(true),
+                  variant: 'primary',
+                },
+                ...(remainingCount > 1 ? [
+                  {
+                    label: `Keep All URLs (${remainingCount})`,
+                    onClick: () => confirmBulkMoveAll(false),
+                    variant: 'secondary' as const,
+                  },
+                  {
+                    label: `Update All URLs (${remainingCount})`,
+                    onClick: () => confirmBulkMoveAll(true),
+                    variant: 'primary' as const,
+                  },
+                ] : []),
+              ]}
+            />
+          )
+        })()}
 
         {/* Delete Confirmation Modal */}
         <ConfirmationModal
@@ -619,6 +963,17 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
           history={urlHistory?.node.slugHistory || []}
           onRestore={handleRestoreSlug}
           onClose={closeUrlHistory}
+        />
+
+        {/* Move To Modal */}
+        <FolderSelectModal
+          isOpen={moveToModal !== null}
+          title={moveToModal ? `Move ${moveToModal.nodes.length} item${moveToModal.nodes.length > 1 ? 's' : ''}` : ''}
+          treeData={data}
+          currentFolderIds={moveToModal?.nodes.map(n => n.folderId ?? null) || []}
+          excludeIds={moveToModal?.excludeIds || []}
+          onSelect={handleMoveToSelect}
+          onCancel={cancelMoveToModal}
         />
 
         {/* Header with search and actions */}
@@ -699,6 +1054,29 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
               }}
             />
           </div>
+
+          {/* Sort dropdown */}
+          <select
+            value={sortOption}
+            onChange={(e) => setSortOption(e.target.value as SortOption)}
+            style={{
+              padding: '8px 12px',
+              border: '1px solid var(--theme-elevation-150)',
+              borderRadius: '4px',
+              fontSize: '14px',
+              backgroundColor: 'var(--theme-input-bg)',
+              color: 'var(--theme-elevation-800)',
+              outline: 'none',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="default">Sort: Default</option>
+            <option value="name-asc">Sort: Name A-Z</option>
+            <option value="name-desc">Sort: Name Z-A</option>
+            <option value="slug-asc">Sort: Slug A-Z</option>
+            <option value="slug-desc">Sort: Slug Z-A</option>
+            <option value="status">Sort: Status</option>
+          </select>
 
           {/* Expand/Collapse buttons */}
           <button
@@ -825,7 +1203,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
           ) : (
             <Tree
               ref={treeRef}
-              data={data}
+              data={sortedData}
               onMove={handleMove}
               onRename={handleRename}
               searchTerm={search}
@@ -838,8 +1216,8 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
               rowHeight={36}
               indent={24}
               openByDefault={false}
-              disableDrag={false}
-              disableDrop={false}
+              disableDrag={sortOption !== 'default'}
+              disableDrop={sortOption !== 'default'}
             >
               {(props) => (
                 <TreeNode {...props} adminRoute={adminRoute} onAction={handleNodeAction} puckEnabled={puckEnabled} />

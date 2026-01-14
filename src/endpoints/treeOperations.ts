@@ -1,4 +1,4 @@
-import type { PayloadHandler, CollectionSlug, Payload } from 'payload'
+import type { PayloadHandler, CollectionSlug, Payload, PayloadRequest } from 'payload'
 import type { MovePayload, ReorderPayload, CreatePayload } from '../types.js'
 import { slugify } from '../utils/getFolderPath.js'
 
@@ -271,6 +271,102 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
 }
 
 /**
+ * Collect all folder IDs recursively (non-blocking)
+ */
+async function collectAllFolderIds(
+  payload: PayloadRequest['payload'],
+  folderId: string,
+  folderSlug: string,
+): Promise<string[]> {
+  const result: string[] = [folderId]
+
+  const { docs: childFolders } = await payload.find({
+    collection: folderSlug as CollectionSlug,
+    where: { folder: { equals: folderId } },
+    limit: 0,
+    depth: 0,
+  })
+
+  // Collect child folder IDs in parallel
+  const childResults = await Promise.all(
+    childFolders.map((folder: any) =>
+      collectAllFolderIds(payload, String(folder.id), folderSlug)
+    )
+  )
+
+  for (const childIds of childResults) {
+    result.push(...childIds)
+  }
+
+  return result
+}
+
+/**
+ * Delete a page or folder (optimized for performance)
+ * Uses parallel operations to minimize transaction time
+ */
+async function deleteFolderRecursive(
+  payload: PayloadRequest['payload'],
+  folderId: string,
+  collections: string[],
+  folderSlug: string,
+): Promise<void> {
+  // Step 1: Collect all folder IDs upfront (parallel recursive queries)
+  const allFolderIds = await collectAllFolderIds(payload, folderId, folderSlug)
+
+  // Step 2: Delete all pages in all folders in parallel
+  // Group by collection and delete in batches
+  const pageDeletePromises: Promise<void>[] = []
+
+  for (const collectionSlug of collections) {
+    // Find all pages in any of the folders
+    const { docs } = await payload.find({
+      collection: collectionSlug as CollectionSlug,
+      where: { folder: { in: allFolderIds } },
+      limit: 0,
+      depth: 0,
+    })
+
+    // Delete pages in parallel batches of 10 to avoid overwhelming the DB
+    const batchSize = 10
+    for (let i = 0; i < docs.length; i += batchSize) {
+      const batch = docs.slice(i, i + batchSize)
+      pageDeletePromises.push(
+        Promise.all(
+          batch.map((doc: any) =>
+            payload.delete({
+              collection: collectionSlug as CollectionSlug,
+              id: doc.id,
+            })
+          )
+        ).then(() => {})
+      )
+    }
+  }
+
+  // Wait for all page deletions to complete
+  await Promise.all(pageDeletePromises)
+
+  // Step 3: Delete folders in reverse order (deepest first to satisfy FK constraints)
+  // We reverse the array since collectAllFolderIds returns parent before children
+  const foldersToDelete = allFolderIds.reverse()
+
+  // Delete folders in parallel batches of 5
+  const folderBatchSize = 5
+  for (let i = 0; i < foldersToDelete.length; i += folderBatchSize) {
+    const batch = foldersToDelete.slice(i, i + folderBatchSize)
+    await Promise.all(
+      batch.map((id) =>
+        payload.delete({
+          collection: folderSlug as CollectionSlug,
+          id,
+        })
+      )
+    )
+  }
+}
+
+/**
  * Delete a page or folder
  */
 export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandler {
@@ -292,53 +388,31 @@ export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandle
 
       if (type === 'folder') {
         if (deleteChildren) {
-          // Delete all child pages first
-          for (const collectionSlug of collections) {
-            const { docs } = await req.payload.find({
-              collection: collectionSlug as CollectionSlug,
-              where: { folder: { equals: id } },
-              limit: 0,
-            })
-            for (const doc of docs) {
-              await req.payload.delete({
-                collection: collectionSlug as CollectionSlug,
-                id: doc.id,
-              })
-            }
-          }
-
-          // Delete child folders recursively
-          const { docs: childFolders } = await req.payload.find({
+          await deleteFolderRecursive(req.payload, id, collections, folderSlug)
+        } else {
+          // Just delete the folder itself (will fail if has children due to FK constraints)
+          await req.payload.delete({
             collection: folderSlug as CollectionSlug,
-            where: { folder: { equals: id } },
-            limit: 0,
+            id,
           })
-          for (const folder of childFolders) {
-            // Recursive delete via API call
-            await createDeleteHandler(options)({
-              ...req,
-              url: `${req.url}?type=folder&id=${folder.id}&deleteChildren=true`,
-            } as typeof req)
-          }
         }
-
-        // Delete the folder itself
-        await req.payload.delete({
-          collection: folderSlug as CollectionSlug,
-          id,
-        })
       } else {
         // Delete page - find which collection it belongs to
+        let deleted = false
         for (const collectionSlug of collections) {
           try {
             await req.payload.delete({
               collection: collectionSlug as CollectionSlug,
               id,
             })
+            deleted = true
             break
           } catch {
             // Try next collection
           }
+        }
+        if (!deleted) {
+          return Response.json({ error: 'Page not found in any collection' }, { status: 404 })
         }
       }
 

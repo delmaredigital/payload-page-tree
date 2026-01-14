@@ -124,10 +124,14 @@ export default async function Page({ params }: { params: { slug: string[] } }) {
 
 The plugin adds a visual tree view at `/admin/page-tree` for managing your page hierarchy:
 
-- **Drag-and-drop** to reorganize pages and folders
+- **Drag-and-drop** to reorganize pages and folders (supports multi-select)
+- **Multi-select support** - Cmd/Ctrl+click to select multiple items, then drag or use "Move to..."
+- **"Move to..." action** - right-click menu option to select destination folder without dragging
+- **Sorting options** - sort by name, slug, or status (drag-drop disabled while sorting)
 - **Collection dropdown** - switch between page types (only appears when multiple collections are configured and exist)
-- **Context menu** (right-click) for actions like edit, duplicate, publish/unpublish, delete
+- **Context menu** (right-click) for actions like edit, duplicate, publish/unpublish, move, delete
 - **URL preservation** - when moving folders, choose to keep existing URLs or update them
+- **Bulk URL updates** - when moving multiple items, "Update All" / "Keep All" buttons for batch confirmation
 - **Regenerate URLs** - manually regenerate slugs for a folder and all its contents
 - **Visual distinction** - folders have subtle background styling to differentiate from pages
 

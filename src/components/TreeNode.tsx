@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import type { NodeRendererProps } from 'react-arborist'
 import type { TreeNode as TreeNodeType } from '../types.js'
 import { useContextMenu } from './ContextMenu.js'
@@ -12,7 +11,6 @@ interface TreeNodeProps extends NodeRendererProps<TreeNodeType> {
 }
 
 export function TreeNode({ node, style, dragHandle, adminRoute, onAction, puckEnabled = false }: TreeNodeProps) {
-  const [isHovered, setIsHovered] = useState(false)
   const { openMenu } = useContextMenu()
   const data = node.data
   const isFolder = data.type === 'folder'
@@ -70,17 +68,13 @@ export function TreeNode({ node, style, dragHandle, adminRoute, onAction, puckEn
         borderRadius: '4px',
         backgroundColor: node.isSelected
           ? 'var(--theme-elevation-100)'
-          : isHovered
-            ? 'var(--theme-elevation-50)'
-            : isFolder
-              ? 'var(--theme-elevation-50, rgba(0,0,0,0.02))'
-              : 'transparent',
+          : isFolder
+            ? 'var(--theme-elevation-50, rgba(0,0,0,0.02))'
+            : 'transparent',
         borderLeft: isFolder ? '3px solid var(--theme-elevation-200, #e5e5e5)' : '3px solid transparent',
         transition: 'background-color 0.1s ease',
         outline: 'none',
       }}
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
       onClick={() => node.isInternal && node.toggle()}
       onDoubleClick={() => {
         if (!isFolder && data.collection) {
@@ -100,326 +94,347 @@ export function TreeNode({ node, style, dragHandle, adminRoute, onAction, puckEn
       }}
       onKeyDown={handleKeyDown}
     >
-      {/* Expand/collapse arrow for folders */}
-      {isFolder && (
-        <span
-          style={{
-            width: '16px',
-            height: '16px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}
-          onClick={(e) => {
-            e.stopPropagation()
-            node.toggle()
-          }}
-        >
-          <svg
-            width="10"
-            height="10"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+      {/* LEFT SECTION: Expand arrow + Icon + Name (flexible) */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+        {/* Expand/collapse arrow for folders */}
+        {isFolder ? (
+          <span
             style={{
-              transform: node.isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
-              transition: 'transform 0.15s ease',
-              opacity: node.children?.length ? 1 : 0.3,
-            }}
-          >
-            <path d="M9 18l6-6-6-6" />
-          </svg>
-        </span>
-      )}
-
-      {/* Spacer for pages (to align with folders) */}
-      {!isFolder && <span style={{ width: '16px', flexShrink: 0 }} />}
-
-      {/* Icon */}
-      {isFolder ? (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill={node.isOpen ? 'var(--theme-elevation-200)' : 'none'}
-          stroke="var(--theme-elevation-500)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ flexShrink: 0 }}
-        >
-          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-        </svg>
-      ) : (
-        <svg
-          width="16"
-          height="16"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="var(--theme-elevation-400)"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          style={{ flexShrink: 0 }}
-        >
-          <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-          <polyline points="14 2 14 8 20 8" />
-        </svg>
-      )}
-
-      {/* Name (editable when node.isEditing) */}
-      {node.isEditing ? (
-        <input
-          type="text"
-          defaultValue={data.name}
-          autoFocus
-          style={{
-            flex: 1,
-            padding: '2px 6px',
-            border: '1px solid var(--theme-elevation-300)',
-            borderRadius: '3px',
-            fontSize: '14px',
-            outline: 'none',
-            backgroundColor: 'var(--theme-input-bg)',
-            color: 'var(--theme-elevation-800)',
-          }}
-          onBlur={(e) => {
-            node.submit(e.currentTarget.value)
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              node.submit(e.currentTarget.value)
-            } else if (e.key === 'Escape') {
-              node.reset()
-            }
-          }}
-        />
-      ) : (
-        <span
-          style={{
-            flex: 1,
-            fontSize: '14px',
-            color: 'var(--theme-elevation-800)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {data.name}
-        </span>
-      )}
-
-      {/* Computed slug for pages */}
-      {!isFolder && data.slug && (
-        <span
-          style={{
-            fontSize: '11px',
-            color: 'var(--theme-elevation-400)',
-            fontFamily: 'monospace',
-            maxWidth: '200px',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flexShrink: 1,
-          }}
-          title={`/${data.slug}`}
-        >
-          /{data.slug}
-        </span>
-      )}
-
-      {/* Status badge for pages */}
-      {!isFolder && data.status && (
-        <span
-          style={{
-            fontSize: '10px',
-            padding: '2px 6px',
-            borderRadius: '3px',
-            backgroundColor:
-              data.status === 'published'
-                ? 'var(--theme-success-100, #dcfce7)'
-                : 'var(--theme-elevation-100)',
-            color:
-              data.status === 'published'
-                ? 'var(--theme-success-600, #16a34a)'
-                : 'var(--theme-elevation-500)',
-            flexShrink: 0,
-          }}
-        >
-          {data.status}
-        </span>
-      )}
-
-      {/* Page count for folders */}
-      {isFolder && data.pageCount > 0 && (
-        <span
-          style={{
-            fontSize: '11px',
-            color: 'var(--theme-elevation-400)',
-            flexShrink: 0,
-          }}
-        >
-          {data.pageCount}
-        </span>
-      )}
-
-      {/* Hover actions */}
-      {isHovered && !node.isEditing && (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: '4px',
-            flexShrink: 0,
-          }}
-        >
-          {/* Edit button */}
-          {!isFolder && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                const editId = data.rawId || data.id.replace(/^page-/, '')
-                if (puckEnabled) {
-                  window.location.href = `${adminRoute}/puck-editor/${data.collection}/${editId}`
-                } else {
-                  window.location.href = `${adminRoute}/collections/${data.collection}/${editId}`
-                }
-              }}
-              style={{
-                padding: '4px',
-                border: 'none',
-                borderRadius: '4px',
-                background: 'transparent',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              title={puckEnabled ? 'Edit with Visual Editor' : 'Edit'}
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--theme-elevation-500)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-              </svg>
-            </button>
-          )}
-
-          {/* Copy slug button */}
-          {!isFolder && data.slug && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                navigator.clipboard.writeText(`/${data.slug}`)
-              }}
-              style={{
-                padding: '4px',
-                border: 'none',
-                borderRadius: '4px',
-                background: 'transparent',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              title="Copy slug"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--theme-elevation-500)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-              </svg>
-            </button>
-          )}
-
-          {/* View on site button */}
-          {!isFolder && data.slug && (
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                window.open(`/${data.slug}`, '_blank')
-              }}
-              style={{
-                padding: '4px',
-                border: 'none',
-                borderRadius: '4px',
-                background: 'transparent',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-              }}
-              title="View on site"
-            >
-              <svg
-                width="14"
-                height="14"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="var(--theme-elevation-500)"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                <polyline points="15 3 21 3 21 9" />
-                <line x1="10" y1="14" x2="21" y2="3" />
-              </svg>
-            </button>
-          )}
-
-          {/* Delete button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation()
-              onAction(String(data.id), 'delete')
-            }}
-            style={{
-              padding: '4px',
-              border: 'none',
-              borderRadius: '4px',
-              background: 'transparent',
-              cursor: 'pointer',
+              width: '16px',
+              height: '16px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
+              flexShrink: 0,
             }}
-            title="Delete"
+            onClick={(e) => {
+              e.stopPropagation()
+              node.toggle()
+            }}
           >
             <svg
-              width="14"
-              height="14"
+              width="10"
+              height="10"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="var(--theme-error-500, #ef4444)"
+              stroke="currentColor"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
+              style={{
+                transform: node.isOpen ? 'rotate(90deg)' : 'rotate(0deg)',
+                transition: 'transform 0.15s ease',
+                opacity: node.children?.length ? 1 : 0.3,
+              }}
             >
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              <path d="M9 18l6-6-6-6" />
             </svg>
-          </button>
+          </span>
+        ) : (
+          <span style={{ width: '16px', flexShrink: 0 }} />
+        )}
+
+        {/* Icon */}
+        {isFolder ? (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill={node.isOpen ? 'var(--theme-elevation-200)' : 'none'}
+            stroke="var(--theme-elevation-500)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ flexShrink: 0 }}
+          >
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+          </svg>
+        ) : (
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="var(--theme-elevation-400)"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={{ flexShrink: 0 }}
+          >
+            <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
+        )}
+
+        {/* Name (editable when node.isEditing) */}
+        {node.isEditing ? (
+          <input
+            type="text"
+            defaultValue={data.name}
+            autoFocus
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: '2px 6px',
+              border: '1px solid var(--theme-elevation-300)',
+              borderRadius: '3px',
+              fontSize: '14px',
+              outline: 'none',
+              backgroundColor: 'var(--theme-input-bg)',
+              color: 'var(--theme-elevation-800)',
+            }}
+            onBlur={(e) => {
+              node.submit(e.currentTarget.value)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                node.submit(e.currentTarget.value)
+              } else if (e.key === 'Escape') {
+                node.reset()
+              }
+            }}
+          />
+        ) : (
+          <span
+            style={{
+              fontSize: '14px',
+              color: 'var(--theme-elevation-800)',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {data.name}
+          </span>
+        )}
+
+        {/* Page count for folders (inline with name) */}
+        {isFolder && data.pageCount > 0 && (
+          <span
+            style={{
+              fontSize: '11px',
+              color: 'var(--theme-elevation-400)',
+              flexShrink: 0,
+            }}
+          >
+            ({data.pageCount})
+          </span>
+        )}
+      </div>
+
+      {/* RIGHT SECTION: Slug + Status + Actions (fixed widths, right-aligned) */}
+      {!node.isEditing && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          {/* Slug column - fixed width */}
+          <div
+            style={{
+              width: '180px',
+              fontSize: '11px',
+              color: 'var(--theme-elevation-400)',
+              fontFamily: 'monospace',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+              textAlign: 'right',
+            }}
+            title={data.slug ? `/${data.slug}` : undefined}
+          >
+            {!isFolder && data.slug ? `/${data.slug}` : ''}
+          </div>
+
+          {/* Status column - fixed width */}
+          <div style={{ width: '70px', textAlign: 'center' }}>
+            {!isFolder && data.status && (
+              <span
+                style={{
+                  fontSize: '10px',
+                  padding: '2px 6px',
+                  borderRadius: '3px',
+                  backgroundColor:
+                    data.status === 'published'
+                      ? 'var(--theme-success-100, #dcfce7)'
+                      : 'var(--theme-elevation-100)',
+                  color:
+                    data.status === 'published'
+                      ? 'var(--theme-success-600, #16a34a)'
+                      : 'var(--theme-elevation-500)',
+                }}
+              >
+                {data.status}
+              </span>
+            )}
+          </div>
+
+          {/* Actions column - fixed width */}
+          <div
+            style={{
+              width: '88px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'flex-end',
+              gap: '2px',
+            }}
+          >
+            {/* Edit button (pages only) */}
+            {!isFolder && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  const editId = data.rawId || data.id.replace(/^page-/, '')
+                  if (puckEnabled) {
+                    window.location.href = `${adminRoute}/puck-editor/${data.collection}/${editId}`
+                  } else {
+                    window.location.href = `${adminRoute}/collections/${data.collection}/${editId}`
+                  }
+                }}
+                style={{
+                  padding: '4px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.4,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1' }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.4' }}
+                title={puckEnabled ? 'Edit with Visual Editor' : 'Edit'}
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--theme-elevation-500)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                  <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                </svg>
+              </button>
+            )}
+
+            {/* Copy slug button (pages only) */}
+            {!isFolder && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (data.slug) {
+                    navigator.clipboard.writeText(`/${data.slug}`)
+                  }
+                }}
+                style={{
+                  padding: '4px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.4,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1' }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.4' }}
+                title="Copy slug"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--theme-elevation-500)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                </svg>
+              </button>
+            )}
+
+            {/* View on site button (pages only) */}
+            {!isFolder && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation()
+                  if (data.slug) {
+                    window.open(`/${data.slug}`, '_blank')
+                  }
+                }}
+                style={{
+                  padding: '4px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  background: 'transparent',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  opacity: 0.4,
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1' }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.4' }}
+                title="View on site"
+              >
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="var(--theme-elevation-500)"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                  <polyline points="15 3 21 3 21 9" />
+                  <line x1="10" y1="14" x2="21" y2="3" />
+                </svg>
+              </button>
+            )}
+
+            {/* Delete button (always) */}
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onAction(String(data.id), 'delete')
+              }}
+              style={{
+                padding: '4px',
+                border: 'none',
+                borderRadius: '4px',
+                background: 'transparent',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: 0.4,
+              }}
+              onMouseEnter={(e) => { e.currentTarget.style.opacity = '1' }}
+              onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.4' }}
+              title="Delete"
+            >
+              <svg
+                width="14"
+                height="14"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="var(--theme-error-500, #ef4444)"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
+          </div>
         </div>
       )}
     </div>
