@@ -557,8 +557,13 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
         const folder = await req.payload.findByID({
           collection: folderSlug as CollectionSlug,
           id,
+          depth: 0, // Ensure we get just the ID, not the full object
         })
-        const parentId = (folder as any).folder as string | null
+        // Handle both ID and object cases (folder.folder could be id or {id, name, ...})
+        const rawParent = (folder as any).folder
+        const parentId = rawParent
+          ? (typeof rawParent === 'object' ? String(rawParent.id) : String(rawParent))
+          : null
 
         // Check for name conflicts (excluding self)
         const { docs } = await req.payload.find({
@@ -593,8 +598,13 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
         const page = await req.payload.findByID({
           collection: collection as CollectionSlug,
           id,
+          depth: 0, // Ensure we get just the ID, not the full object
         })
-        const parentId = (page as any).folder as string | null
+        // Handle both ID and object cases (page.folder could be id or {id, name, ...})
+        const rawFolder = (page as any).folder
+        const parentId = rawFolder
+          ? (typeof rawFolder === 'object' ? String(rawFolder.id) : String(rawFolder))
+          : null
 
         // Check for name conflicts (excluding self)
         const { docs } = await req.payload.find({

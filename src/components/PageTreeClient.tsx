@@ -214,9 +214,11 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
       updateSlugs: boolean = false,
     ) => {
       // Optimistic update with recalculated page counts
-      const movedData = moveNodeInTree(data, dragIds[0], parentId, index)
-      const newData = recalculatePageCounts(movedData)
-      setData(newData)
+      // Use functional update to ensure each move builds on the previous state
+      setData((currentData) => {
+        const movedData = moveNodeInTree(currentData, dragIds[0], parentId, index)
+        return recalculatePageCounts(movedData)
+      })
 
       // API call - use raw IDs without prefixes
       try {
@@ -244,7 +246,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
         setData(treeData)
       }
     },
-    [data, treeData, apiCall],
+    [treeData, apiCall],
   )
 
   // Handle drag-and-drop move (supports multi-select)
@@ -332,6 +334,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
         for (const item of itemsToMove) {
           executeMove([item.dragId], item.parentId, item.index, item.node, false)
         }
+        toast.success(`Moved ${itemsToMove.length} item${itemsToMove.length > 1 ? 's' : ''}`)
         return
       }
 
@@ -407,6 +410,8 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
     (updateSlugs: boolean) => {
       if (!pendingBulkMove) return
 
+      const remainingCount = pendingBulkMove.items.length - pendingBulkMove.currentIndex
+
       // Process all remaining items from current index
       for (let i = pendingBulkMove.currentIndex; i < pendingBulkMove.items.length; i++) {
         const item = pendingBulkMove.items[i]
@@ -416,6 +421,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
       }
 
       setPendingBulkMove(null)
+      toast.success(`Moved ${remainingCount} item${remainingCount > 1 ? 's' : ''}`)
     },
     [pendingBulkMove, executeMove],
   )
@@ -795,6 +801,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
         for (const item of itemsToMove) {
           executeMove([item.dragId], item.parentId, item.index, item.node, false)
         }
+        toast.success(`Moved ${itemsToMove.length} item${itemsToMove.length > 1 ? 's' : ''}`)
         return
       }
 

@@ -10,10 +10,16 @@ interface TreeNodeProps extends NodeRendererProps<TreeNodeType> {
   puckEnabled?: boolean
 }
 
+// Indentation per level (should match Tree indent prop)
+const INDENT_PER_LEVEL = 24
+
 export function TreeNode({ node, style, dragHandle, adminRoute, onAction, puckEnabled = false }: TreeNodeProps) {
   const { openMenu } = useContextMenu()
   const data = node.data
   const isFolder = data.type === 'folder'
+
+  // Calculate indentation based on node depth
+  const indentPadding = node.level * INDENT_PER_LEVEL
 
   // Handle keyboard shortcuts
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -63,7 +69,10 @@ export function TreeNode({ node, style, dragHandle, adminRoute, onAction, puckEn
         display: 'flex',
         alignItems: 'center',
         gap: '8px',
-        padding: '4px 8px',
+        paddingTop: '4px',
+        paddingBottom: '4px',
+        paddingRight: '8px',
+        paddingLeft: `${indentPadding + 8}px`, // Base padding + indentation
         cursor: 'pointer',
         borderRadius: '4px',
         backgroundColor: node.isSelected
