@@ -14,6 +14,26 @@ A Payload CMS plugin that extends the built-in folders feature to auto-generate 
 - **No dummy pages** - folders are purely organizational
 - **Plugin friendly** - works alongside Puck, SEO, and other plugins
 
+## Preview
+
+<p align="center">
+  <img src=".github/screenshots/tree-view.png" alt="Tree View" width="700">
+</p>
+
+<details>
+<summary>More screenshots</summary>
+
+### Context Menu
+<img src=".github/screenshots/context-menu.png" alt="Context Menu" width="400">
+
+### Move to Modal
+<img src=".github/screenshots/move-modal.png" alt="Move to Modal" width="400">
+
+### Bulk Move Confirmation
+<img src=".github/screenshots/bulk-move.png" alt="Bulk Move Confirmation" width="500">
+
+</details>
+
 ## Installation
 
 ```bash
