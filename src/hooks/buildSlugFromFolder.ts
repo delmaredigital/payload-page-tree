@@ -17,15 +17,15 @@ const MAX_SLUG_HISTORY = 20
  *
  * Slug generation behavior:
  * - CREATE: Always generate slug from folder path + pageSegment
- * - UPDATE: Only regenerate if context.updateSlugs is true, otherwise preserve existing slug
+ * - UPDATE: Regenerate slug if folder or pageSegment changed, or if context.updateSlugs is true
  *
  * Slug history tracking:
  * - When a slug changes, the previous slug is added to slugHistory with timestamp and reason
  * - History is limited to MAX_SLUG_HISTORY entries (oldest are dropped)
  * - Reason comes from context.slugChangeReason or defaults to 'manual'
  *
- * This prevents breaking existing URLs when folders are reorganized or pages are edited.
- * To regenerate slugs, use the /api/page-tree/regenerate-slugs endpoint or
+ * This prevents breaking existing URLs when editing unrelated page content.
+ * To force regenerate all slugs, use the /api/page-tree/regenerate-slugs endpoint or
  * choose "Update URLs" when moving folders in the tree view.
  */
 export function createBuildSlugHook(options: BuildSlugOptions): CollectionBeforeChangeHook {
@@ -39,9 +39,26 @@ export function createBuildSlugHook(options: BuildSlugOptions): CollectionBefore
       return data
     }
 
-    // Preserve existing slugs on update unless explicitly requested to regenerate
-    // This prevents breaking URLs when editing pages or reorganizing folders
-    if (operation === 'update' && originalDoc?.slug && !context?.updateSlugs) {
+    // Check if folder or pageSegment changed
+    const getIdValue = (val: unknown): string | number | null | undefined => {
+      if (val && typeof val === 'object' && 'id' in val) return (val as { id: string | number }).id
+      return val as string | number | null | undefined
+    }
+
+    const newFolderId = getIdValue(data[folderFieldName])
+    const originalFolderId = getIdValue(originalDoc?.[folderFieldName])
+    const folderChanged = newFolderId !== originalFolderId
+
+    const newSegment = data[pageSegmentFieldName]
+    const originalSegment = originalDoc?.[pageSegmentFieldName]
+    const segmentChanged = newSegment !== undefined && newSegment !== originalSegment
+
+    // Preserve existing slugs on update unless:
+    // - context.updateSlugs is explicitly true
+    // - folder changed
+    // - pageSegment changed
+    // This prevents breaking URLs when editing unrelated page content
+    if (operation === 'update' && originalDoc?.slug && !context?.updateSlugs && !folderChanged && !segmentChanged) {
       return data
     }
 
