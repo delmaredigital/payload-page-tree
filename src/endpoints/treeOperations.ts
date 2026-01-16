@@ -251,6 +251,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
 
         const result = await req.payload.create({
           collection: collectionSlug as CollectionSlug,
+          draft: true, // Skip required field validation for drafts
           data: {
             title: uniqueName,
             folder: parentId || null,

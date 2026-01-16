@@ -4,7 +4,7 @@ A Payload CMS plugin that extends the built-in folders feature to auto-generate 
 
 ## Features
 
-- **Zero config** - works out of the box with `pages` and `posts` collections (auto-detects what exists)
+- **Minimal config** - works with `pages` and `posts` collections by default (auto-detects what exists)
 - **Visual tree view** - drag-and-drop reorganization in admin panel
 - **Auto-generated slugs** - hierarchical URLs from folder paths (e.g., `/appeals/2024/spring-campaign`)
 - **URL history tracking** - automatic audit trail of previous URLs with restore capability
@@ -43,25 +43,50 @@ pnpm add @delmaredigital/payload-page-tree
 ## Usage
 
 ```typescript
+// src/payload.config.ts
 import { buildConfig } from 'payload'
 import { pageTreePlugin } from '@delmaredigital/payload-page-tree'
+import { Pages } from './collections/Pages'
 
 export default buildConfig({
-  collections: [
-    {
-      slug: 'pages',
-      fields: [
-        { name: 'title', type: 'text', required: true },
-        { name: 'slug', type: 'text', required: true, unique: true },
-        // ... other fields
-      ],
-    },
-  ],
+  collections: [Pages],
   plugins: [
     pageTreePlugin(),  // Auto-detects 'pages' and 'posts' if they exist
   ],
 })
 ```
+
+### Collection Requirements
+
+Your collections **must** have a `slug` field defined. The plugin will:
+- Make it read-only in the admin UI
+- Auto-generate values from folder path + page segment
+- Add `folder`, `pageSegment`, `sortOrder`, and `slugHistory` fields automatically
+
+```typescript
+// src/collections/Pages/index.ts
+import type { CollectionConfig } from 'payload'
+
+export const Pages: CollectionConfig = {
+  slug: 'pages',
+  fields: [
+    { name: 'title', type: 'text', required: true },
+    // ✅ Define a plain slug field - the plugin will manage it
+    {
+      name: 'slug',
+      type: 'text',
+      required: true,
+      unique: true,
+      index: true,
+    },
+    // ... other fields
+  ],
+}
+```
+
+> **⚠️ Important:** Do NOT use Payload's `slugField()` helper function. Use a plain text field instead. The `slugField()` helper adds its own hooks that conflict with the plugin's auto-generation.
+
+> **Note:** Pages created from the tree view are created as drafts with minimal fields (`title`, `folder`, `sortOrder`). Required field validation is skipped for drafts, so pages with required content fields (like `blocks` or `layout`) will be created successfully and can be completed when editing.
 
 The plugin defaults to `['pages', 'posts']` but **automatically filters to only collections that exist** in your config. If you only have a `pages` collection, `posts` is silently ignored.
 
