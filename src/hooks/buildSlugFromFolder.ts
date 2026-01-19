@@ -47,7 +47,8 @@ export function createBuildSlugHook(options: BuildSlugOptions): CollectionBefore
 
     const newFolderId = getIdValue(data[folderFieldName])
     const originalFolderId = getIdValue(originalDoc?.[folderFieldName])
-    const folderChanged = newFolderId !== originalFolderId
+    // Only consider it changed if data explicitly provides a different folder
+    const folderChanged = newFolderId !== undefined && newFolderId !== originalFolderId
 
     const newSegment = data[pageSegmentFieldName]
     const originalSegment = originalDoc?.[pageSegmentFieldName]
@@ -62,14 +63,18 @@ export function createBuildSlugHook(options: BuildSlugOptions): CollectionBefore
       return data
     }
 
-    // Get the folder ID - handle both populated and unpopulated cases
-    const folderId =
-      typeof data[folderFieldName] === 'object' && data[folderFieldName] !== null
-        ? data[folderFieldName].id
-        : data[folderFieldName]
+    // Get folder ID - prefer data, fall back to originalDoc for cascade updates
+    const dataFolder = data[folderFieldName]
+    const originalFolder = originalDoc?.[folderFieldName]
+    const effectiveFolder = dataFolder !== undefined ? dataFolder : originalFolder
+    const folderId = getIdValue(effectiveFolder)
 
-    // Get the page segment - use provided value or generate from title
+    // Get pageSegment - prefer data, fall back to originalDoc for cascade updates
     let pageSegment = data[pageSegmentFieldName]
+    if (pageSegment === undefined && originalDoc?.[pageSegmentFieldName]) {
+      pageSegment = originalDoc[pageSegmentFieldName]
+    }
+    // Only auto-generate from title if truly empty and it's a new page or title is changing
     if (!pageSegment && data.title) {
       pageSegment = slugify(data.title)
       data[pageSegmentFieldName] = pageSegment

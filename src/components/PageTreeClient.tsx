@@ -9,6 +9,7 @@ import { ContextMenuProvider } from './ContextMenu.js'
 import { ConfirmationModal } from './ConfirmationModal.js'
 import { SlugHistoryModal } from './SlugHistoryModal.js'
 import { FolderSelectModal } from './FolderSelectModal.js'
+import { EditUrlModal } from './EditUrlModal.js'
 
 /**
  * Function to generate custom edit URLs for pages
@@ -80,6 +81,11 @@ interface PendingDelete {
 
 interface UrlHistoryState {
   node: TreeNodeType
+}
+
+interface EditUrlState {
+  node: TreeNodeType
+  folderPath: string
 }
 
 // Helper to extract raw database ID from prefixed tree ID
@@ -182,6 +188,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
   const [moveToModal, setMoveToModal] = useState<MoveToState | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [urlHistory, setUrlHistory] = useState<UrlHistoryState | null>(null)
+  const [editUrlState, setEditUrlState] = useState<EditUrlState | null>(null)
 
   // Compute sorted data
   const sortedData = useMemo(() => sortTreeData(data, sortOption), [data, sortOption])
@@ -679,6 +686,42 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
           setMoveToModal({ nodes: nodesToMove, excludeIds })
           break
         }
+
+        case 'editUrl': {
+          // Get folder path for preview
+          // For pages, extract the folder path from the slug (everything except the last segment)
+          // For folders, we need to find the parent folder path
+          let folderPath = ''
+          if (node.type === 'page' && node.slug) {
+            const slugParts = node.slug.split('/')
+            if (slugParts.length > 1) {
+              folderPath = slugParts.slice(0, -1).join('/')
+            }
+          } else if (node.type === 'folder' && node.folderId) {
+            // Find parent folder and get its path
+            const parentFolder = findNode(data, `folder-${node.folderId}`)
+            if (parentFolder && parentFolder.slug) {
+              folderPath = parentFolder.slug
+            } else if (parentFolder && parentFolder.pathSegment) {
+              // Recursively build path from parent folders
+              let currentFolder = parentFolder
+              const segments: string[] = []
+              while (currentFolder) {
+                if (currentFolder.pathSegment) {
+                  segments.unshift(currentFolder.pathSegment)
+                }
+                if (currentFolder.folderId) {
+                  currentFolder = findNode(data, `folder-${currentFolder.folderId}`) as TreeNodeType
+                } else {
+                  break
+                }
+              }
+              folderPath = segments.join('/')
+            }
+          }
+          setEditUrlState({ node, folderPath })
+          break
+        }
       }
     },
     [data, adminRoute, collections, selectedCollection, apiCall, puckEnabled, getEditUrl],
@@ -756,6 +799,44 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
   // Close URL history modal
   const closeUrlHistory = useCallback(() => {
     setUrlHistory(null)
+  }, [])
+
+  // Handle edit URL save
+  const handleEditUrlSave = useCallback(
+    async (segment: string) => {
+      if (!editUrlState) return
+
+      const node = editUrlState.node
+      const rawId = getRawId(node)
+      const type = node.type
+
+      try {
+        await apiCall('/page-tree/edit-url', {
+          method: 'POST',
+          body: JSON.stringify({
+            type,
+            id: rawId,
+            segment,
+            collection: node.collection,
+          }),
+        })
+
+        toast.success('URL updated')
+        setEditUrlState(null)
+        // Refresh to show updated slug
+        window.location.reload()
+      } catch (error) {
+        console.error('Edit URL failed:', error)
+        const message = error instanceof Error ? error.message : 'Failed to update URL'
+        throw new Error(message)
+      }
+    },
+    [editUrlState, apiCall],
+  )
+
+  // Close edit URL modal
+  const closeEditUrl = useCallback(() => {
+    setEditUrlState(null)
   }, [])
 
   // Handle folder selection from Move To modal
@@ -981,6 +1062,15 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
           excludeIds={moveToModal?.excludeIds || []}
           onSelect={handleMoveToSelect}
           onCancel={cancelMoveToModal}
+        />
+
+        {/* Edit URL Modal */}
+        <EditUrlModal
+          isOpen={editUrlState !== null}
+          node={editUrlState?.node ?? null}
+          folderPath={editUrlState?.folderPath ?? ''}
+          onSave={handleEditUrlSave}
+          onCancel={closeEditUrl}
         />
 
         {/* Header with search and actions */}

@@ -167,3 +167,4 @@ export type ContextMenuAction =
   | 'regenerateSlugs'
   | 'urlHistory'
   | 'moveTo'
+  | 'editUrl'

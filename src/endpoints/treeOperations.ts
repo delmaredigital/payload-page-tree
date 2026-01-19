@@ -591,7 +591,11 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
         await req.payload.update({
           collection: folderSlug as CollectionSlug,
           id,
-          data: { name },
+          data: {
+            name,
+            // Also update pathSegment when updateSlugs is true, so URL reflects new name
+            ...(updateSlugs && { pathSegment: slugify(name) }),
+          },
           context: { updateSlugs, slugChangeReason: 'rename' },
         })
       } else if (collection) {
@@ -632,7 +636,11 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
         await req.payload.update({
           collection: collection as CollectionSlug,
           id,
-          data: { title: name },
+          data: {
+            title: name,
+            // Also update pageSegment when updateSlugs is true, so URL reflects new name
+            ...(updateSlugs && { pageSegment: slugify(name) }),
+          },
           context: { updateSlugs, slugChangeReason: 'rename' },
         })
       }
@@ -952,6 +960,72 @@ export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadH
       console.error('[payload-page-tree] Restore slug error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Failed to restore slug' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
+ * Edit URL segment for a page or folder
+ *
+ * Updates pageSegment (for pages) or pathSegment (for folders) and triggers slug regeneration.
+ */
+export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandler {
+  const { collections, folderSlug } = options
+
+  return async (req) => {
+    try {
+      const body = (await req.json?.()) as {
+        type: 'page' | 'folder'
+        id: string
+        segment: string
+        collection?: string
+      }
+
+      if (!body?.type || !body?.id || !body?.segment) {
+        return Response.json(
+          { error: 'Missing required fields: type, id, segment' },
+          { status: 400 },
+        )
+      }
+
+      const { type, id, segment, collection } = body
+      const slugifiedSegment = slugify(segment)
+
+      if (type === 'folder') {
+        await req.payload.update({
+          collection: folderSlug as CollectionSlug,
+          id,
+          data: { pathSegment: slugifiedSegment },
+          context: { updateSlugs: true, slugChangeReason: 'rename' },
+        })
+      } else if (collection) {
+        if (!collections.includes(collection)) {
+          return Response.json(
+            { error: `Collection "${collection}" is not configured for page-tree` },
+            { status: 400 },
+          )
+        }
+
+        await req.payload.update({
+          collection: collection as CollectionSlug,
+          id,
+          data: { pageSegment: slugifiedSegment },
+          context: { updateSlugs: true, slugChangeReason: 'rename' },
+        })
+      } else {
+        return Response.json(
+          { error: 'Collection is required for page type' },
+          { status: 400 },
+        )
+      }
+
+      return Response.json({ success: true })
+    } catch (error) {
+      console.error('[payload-page-tree] Edit URL error:', error)
+      return Response.json(
+        { error: error instanceof Error ? error.message : 'Edit URL failed' },
         { status: 500 },
       )
     }

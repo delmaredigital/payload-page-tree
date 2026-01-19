@@ -15,6 +15,7 @@ import {
   createMigrateHandler,
   createRedirectsHandler,
   createRestoreSlugHandler,
+  createEditUrlHandler,
 } from './endpoints/treeOperations.js'
 
 export type { PageTreePluginConfig } from './types.js'
@@ -355,6 +356,11 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
         path: '/page-tree/restore-slug',
         method: 'post',
         handler: createRestoreSlugHandler(endpointOptions),
+      },
+      {
+        path: '/page-tree/edit-url',
+        method: 'post',
+        handler: createEditUrlHandler(endpointOptions),
       },
     ]
 
