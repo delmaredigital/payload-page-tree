@@ -4,6 +4,7 @@ import { PageTreeClient } from './PageTreeClient.js'
 import { DefaultTemplate } from '@payloadcms/next/templates'
 import { getVisibleEntities } from '@payloadcms/ui/shared'
 import { buildTreeStructure } from '../utils/buildTree.js'
+import { redirect } from 'next/navigation.js'
 
 type PageTreeViewProps = AdminViewProps
 
@@ -18,6 +19,11 @@ export async function PageTreeView({
 
   // Get admin route from config
   const adminRoute = req.payload.config.routes?.admin || '/admin'
+
+  // Redirect to login if not authenticated
+  if (!req.user) {
+    redirect(`${adminRoute}/login`)
+  }
 
   // Get plugin config from payload.config.custom
   const pageTreeConfig = payload.config.custom?.pageTree as {
