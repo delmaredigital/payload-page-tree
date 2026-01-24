@@ -50,6 +50,47 @@ export interface PageTreePluginConfig {
      */
     path?: string
   }
+
+  /**
+   * Customize the folders collection.
+   * Use this to add organization scoping, custom fields, or access control.
+   * Called after the plugin adds its own fields (pathSegment, sortOrder).
+   *
+   * **Note:** If adding organization scoping to an existing app that already
+   * has folders, you'll need to migrate existing folder data to assign them
+   * to organizations.
+   *
+   * @example
+   * // Add organization scoping
+   * import { orgScopedAccess, createOrganizationField } from './access/organization'
+   *
+   * pageTreePlugin({
+   *   customizeFolderCollection: (collection) => ({
+   *     ...collection,
+   *     access: orgScopedAccess,
+   *     fields: [...collection.fields, createOrganizationField()],
+   *   }),
+   * })
+   */
+  customizeFolderCollection?: CustomizeFolderCollection
+}
+
+/**
+ * Callback to customize the folders collection.
+ * Receives the collection config after the plugin has added its fields.
+ * Must return a valid collection config.
+ */
+export type CustomizeFolderCollection = (
+  collection: FolderCollectionInput
+) => FolderCollectionInput
+
+/**
+ * Folder collection config type - uses generic record to avoid
+ * tight coupling to specific Payload versions.
+ */
+export type FolderCollectionInput = Record<string, unknown> & {
+  slug: string
+  fields: unknown[]
 }
 
 /**

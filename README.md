@@ -143,8 +143,36 @@ pageTreePlugin({
     enabled: true,           // Show tree view in admin (default: true)
     path: '/page-tree',      // URL path for tree view (default: '/page-tree')
   },
+
+  // Customize the folders collection (add access control, fields, etc.)
+  customizeFolderCollection: (collection) => collection,
 })
 ```
+
+## Organization Scoping
+
+For multi-tenant apps where each organization has isolated content, use `customizeFolderCollection` to add organization-based access control to folders:
+
+```typescript
+import { pageTreePlugin } from '@delmaredigital/payload-page-tree'
+import { orgScopedAccess, createOrganizationField } from './access/organization'
+
+pageTreePlugin({
+  collections: ['pages'],
+  customizeFolderCollection: (collection) => ({
+    ...collection,
+    access: orgScopedAccess,
+    fields: [...collection.fields, createOrganizationField()],
+  }),
+})
+```
+
+This ensures:
+- Folders are filtered by the user's active organization in the tree view
+- New folders are automatically assigned to the user's organization
+- Users can only see and manage folders belonging to their organization
+
+> **⚠️ Migration Required:** If adding organization scoping to an existing app that already has folders, you'll need to migrate existing folder data to assign them to organizations. Unassigned folders will become inaccessible.
 
 ## Frontend Routing
 

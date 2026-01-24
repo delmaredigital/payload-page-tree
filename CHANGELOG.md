@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.6] - 2026-01-24
+
+### Added
+
+- **`customizeFolderCollection` option**: Callback to customize the folders collection with custom fields, access control, or hooks. Enables organization scoping for multi-tenant apps without coupling the plugin to any specific auth system.
+
+### Fixed
+
+- **Multi-tenant access control**: Tree view now correctly applies access control - passes `req` to all Local API calls and sets `overrideAccess: false` on queries. Previously, users could see pages from all organizations.
+- **API endpoint access control**: All tree operation endpoints (move, reorder, create, delete, duplicate, etc.) now pass `req` to respect collection access rules.
+
+---
+
 ## [0.3.0] - 2026-01-14
 
 ### Added

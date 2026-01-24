@@ -110,6 +110,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
             sortOrder: newIndex,
           },
           context: { updateSlugs, slugChangeReason: 'move' },
+          req,
         })
       } else {
         // Move page - find which collection it belongs to
@@ -123,6 +124,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
                 sortOrder: newIndex,
               },
               context: { updateSlugs, slugChangeReason: 'move' },
+              req,
             })
             break // Found and updated
           } catch {
@@ -166,6 +168,7 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
               collection: folderSlug as CollectionSlug,
               id: item.id,
               data: { sortOrder: item.sortOrder },
+              req,
             }),
           ),
         )
@@ -179,6 +182,7 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
                   collection: collectionSlug as CollectionSlug,
                   id: item.id,
                   data: { sortOrder: item.sortOrder },
+                  req,
                 }),
               ),
             )
@@ -234,6 +238,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
             folder: parentId || null,
             sortOrder: 0,
           },
+          req,
         })
         return Response.json({ success: true, id: result.id, type: 'folder', name: uniqueName })
       } else {
@@ -258,6 +263,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
             sortOrder: 0,
             _status: 'draft',
           },
+          req,
         })
         return Response.json({ success: true, id: result.id, type: 'page', collection: collectionSlug, name: uniqueName })
       }
@@ -395,6 +401,7 @@ export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandle
           await req.payload.delete({
             collection: folderSlug as CollectionSlug,
             id,
+            req,
           })
         }
       } else {
@@ -405,6 +412,7 @@ export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandle
             await req.payload.delete({
               collection: collectionSlug as CollectionSlug,
               id,
+              req,
             })
             deleted = true
             break
@@ -451,6 +459,7 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
       const original = await req.payload.findByID({
         collection: collection as CollectionSlug,
         id,
+        req,
       })
 
       // Create a copy - exclude auto-generated and system fields
@@ -483,6 +492,7 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
           pageSegment: slugify(uniqueTitle), // Generate new pageSegment from new title
           _status: 'draft',
         },
+        req,
       })
 
       return Response.json({ success: true, id: result.id, title: uniqueTitle })
@@ -514,6 +524,7 @@ export function createStatusHandler(options: TreeEndpointOptions): PayloadHandle
         collection: body.collection as CollectionSlug,
         id: body.id,
         data: { _status: body.status },
+        req,
       })
 
       return Response.json({ success: true })
@@ -559,6 +570,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           collection: folderSlug as CollectionSlug,
           id,
           depth: 0, // Ensure we get just the ID, not the full object
+          req,
         })
         // Handle both ID and object cases (folder.folder could be id or {id, name, ...})
         const rawParent = (folder as any).folder
@@ -597,6 +609,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
             ...(updateSlugs && { pathSegment: slugify(name) }),
           },
           context: { updateSlugs, slugChangeReason: 'rename' },
+          req,
         })
       } else if (collection) {
         // Get the page to find its parent folder
@@ -604,6 +617,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           collection: collection as CollectionSlug,
           id,
           depth: 0, // Ensure we get just the ID, not the full object
+          req,
         })
         // Handle both ID and object cases (page.folder could be id or {id, name, ...})
         const rawFolder = (page as any).folder
@@ -642,6 +656,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
             ...(updateSlugs && { pageSegment: slugify(name) }),
           },
           context: { updateSlugs, slugChangeReason: 'rename' },
+          req,
         })
       }
 
@@ -698,6 +713,7 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
               id: page.id,
               data: {}, // Empty update triggers beforeChange hook
               context: { updateSlugs: true, slugChangeReason: 'regenerate' },
+              req,
             })
             updatedCount++
           }
@@ -717,13 +733,12 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
               id: page.id,
               data: {},
               context: { updateSlugs: true, slugChangeReason: 'regenerate' },
+              req,
             })
             updatedCount++
           }
         }
       }
-
-      console.log(`[payload-page-tree] Regenerated slugs for ${updatedCount} pages`)
 
       return Response.json({
         success: true,
@@ -779,6 +794,7 @@ export function createMigrateHandler(options: TreeEndpointOptions): PayloadHandl
             data: { pathSegment: newPathSegment },
             // Don't trigger slug cascade - we want to preserve existing page slugs
             context: { updateSlugs: false },
+            req,
           })
           updated.push({
             id: folderDoc.id,
@@ -787,8 +803,6 @@ export function createMigrateHandler(options: TreeEndpointOptions): PayloadHandl
           })
         }
       }
-
-      console.log(`[payload-page-tree] Migrated ${updated.length} folders`)
 
       return Response.json({
         success: true,
@@ -908,6 +922,7 @@ export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadH
       const page = await req.payload.findByID({
         collection: collection as CollectionSlug,
         id,
+        req,
       })
 
       const pageDoc = page as unknown as {
@@ -950,6 +965,7 @@ export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadH
         },
         // Don't trigger the buildSlug hook - we're setting the slug directly
         context: { skipSlugGeneration: true },
+        req,
       })
 
       return Response.json({
@@ -999,6 +1015,7 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
           id,
           data: { pathSegment: slugifiedSegment },
           context: { updateSlugs: true, slugChangeReason: 'rename' },
+          req,
         })
       } else if (collection) {
         if (!collections.includes(collection)) {
@@ -1013,6 +1030,7 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
           id,
           data: { pageSegment: slugifiedSegment },
           context: { updateSlugs: true, slugChangeReason: 'rename' },
+          req,
         })
       } else {
         return Response.json(

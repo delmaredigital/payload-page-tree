@@ -52,6 +52,7 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
     pageSegmentFieldName = 'pageSegment',
     disabled = false,
     adminView = {},
+    customizeFolderCollection,
   } = pluginOptions
 
   const {
@@ -130,7 +131,8 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
               })
             : undefined
 
-          return {
+          // Build the folder collection with plugin fields
+          const folderCollection = {
             ...collection,
             fields: [...existingFields, pathSegmentField, sortOrderField],
             hooks: {
@@ -141,6 +143,14 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
               ],
             },
           }
+
+          // Apply custom folder collection modifications if provided
+          // This allows adding org scoping, custom fields, or access control
+          if (customizeFolderCollection) {
+            return customizeFolderCollection(folderCollection as unknown as Parameters<typeof customizeFolderCollection>[0]) as typeof folderCollection
+          }
+
+          return folderCollection
         },
       ],
     }

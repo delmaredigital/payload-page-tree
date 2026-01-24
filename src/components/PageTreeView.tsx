@@ -52,6 +52,8 @@ export async function PageTreeView({
       collection: folderSlug as 'payload-folders',
       limit: 0,
       depth: 1,
+      req,
+      overrideAccess: false, // Apply access control based on req.user
     })
     const allFolders = result.docs as unknown as FolderDocument[]
 
@@ -76,6 +78,8 @@ export async function PageTreeView({
       collection: validSelectedCollection as 'pages',
       limit: 0,
       depth: 0,
+      req,
+      overrideAccess: false, // Apply access control based on req.user
     })
     // Add collection slug to each page for context menu actions
     const pagesWithCollection = (result.docs as unknown as PageDocument[]).map(page => ({

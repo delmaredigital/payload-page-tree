@@ -66,11 +66,6 @@ export function createCascadeSlugUpdatesHook(
           })
         }
 
-        if (pages.length > 0) {
-          console.log(
-            `[payload-page-tree] Updated slugs for ${pages.length} ${collectionSlug} after folder change`,
-          )
-        }
       } catch (error) {
         console.error(
           `[payload-page-tree] Error updating ${collectionSlug} slugs after folder change:`,
