@@ -49,16 +49,16 @@
   },
   "dependencies": {
     "react-arborist": "^3.4.3",
-    "sonner": "^2.0.0"
+    "sonner": "^2.0.7"
   },
   "devDependencies": {
-    "@payloadcms/next": "^3.70.0",
-    "@payloadcms/ui": "^3.70.0",
-    "@types/node": "^22.0.0",
-    "@types/react": "^19.0.0",
-    "next": "^16.0.0",
-    "payload": "^3.70.0",
-    "react": "^19.0.0",
+    "@payloadcms/next": "^3.73.0",
+    "@payloadcms/ui": "^3.73.0",
+    "@types/node": "^22.19.7",
+    "@types/react": "^19.2.9",
+    "next": "^16.1.4",
+    "payload": "^3.73.0",
+    "react": "^19.2.3",
     "typescript": "^5.9.3"
   },
   "keywords": [
