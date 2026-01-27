@@ -4,31 +4,59 @@
   "description": "Payload CMS plugin for folder-based hierarchical URL slugs with visual tree management",
   "type": "module",
   "license": "MIT",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "import": "./src/index.ts",
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
     },
     "./client": {
-      "import": "./dist/exports/client.js",
-      "types": "./dist/exports/client.d.ts"
+      "import": "./src/exports/client.ts",
+      "types": "./src/exports/client.ts",
+      "default": "./src/exports/client.ts"
     },
     "./rsc": {
-      "import": "./dist/exports/rsc.js",
-      "types": "./dist/exports/rsc.d.ts"
+      "import": "./src/exports/rsc.ts",
+      "types": "./src/exports/rsc.ts",
+      "default": "./src/exports/rsc.ts"
     },
     "./theme.css": "./src/styles/theme.css"
   },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "import": "./dist/index.js",
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./client": {
+        "import": "./dist/exports/client.js",
+        "types": "./dist/exports/client.d.ts",
+        "default": "./dist/exports/client.js"
+      },
+      "./rsc": {
+        "import": "./dist/exports/rsc.js",
+        "types": "./dist/exports/rsc.d.ts",
+        "default": "./dist/exports/rsc.js"
+      },
+      "./theme.css": "./dist/styles/theme.css"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts"
+  },
   "files": [
     "dist",
-    "src/styles"
+    "src"
   ],
   "scripts": {
+    "build": "pnpm build:swc && pnpm build:types && pnpm build:styles",
+    "build:swc": "swc ./src -d ./dist --strip-leading-paths",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist",
+    "build:styles": "copyfiles -u 1 \"src/**/*.css\" dist",
+    "dev": "swc ./src -d ./dist --strip-leading-paths --watch",
     "dev-publish": "pnpm build && pnpm version prerelease --preid=dev --no-git-tag-version && pnpm publish --registry http://localhost:4873 --no-git-checks",
-    "build": "tsc",
-    "dev": "tsc --watch",
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm build"
   },
@@ -54,8 +82,11 @@
   "devDependencies": {
     "@payloadcms/next": "^3.73.0",
     "@payloadcms/ui": "^3.73.0",
+    "@swc/cli": "^0.6.0",
+    "@swc/core": "^1.10.0",
     "@types/node": "^22.19.7",
     "@types/react": "^19.2.9",
+    "copyfiles": "^2.4.1",
     "next": "^16.1.4",
     "payload": "^3.73.0",
     "react": "^19.2.3",

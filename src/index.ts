@@ -74,6 +74,16 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
     )
     const validCollections = collections.filter(slug => existingCollectionSlugs.has(slug))
 
+    // Warn about missing collections - this usually means plugin order is wrong
+    const missingCollections = collections.filter(slug => !existingCollectionSlugs.has(slug))
+    if (missingCollections.length > 0) {
+      console.warn(
+        `[payload-page-tree] Collections not found: ${missingCollections.join(', ')}. ` +
+        `If using payload-puck with autoGenerateCollection, ensure createPuckPlugin() runs BEFORE pageTreePlugin(). ` +
+        `See: https://github.com/delmaredigital/payload-page-tree#plugin-order`
+      )
+    }
+
     // If no valid collections, skip plugin setup but still add folder fields
     if (validCollections.length === 0) {
       console.warn('[payload-page-tree] No matching collections found. Plugin will only add folder fields.')
