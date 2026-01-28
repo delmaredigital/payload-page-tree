@@ -2,6 +2,27 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.7] - 2026-01-28
+
+### Changed
+
+#### Build System Migration to SWC
+
+Migrated from pure TypeScript compilation to SWC for faster builds:
+
+- **Build time**: Significantly faster compilation (~85ms vs several seconds with tsc)
+- **TypeScript**: Now only emits declaration files (`.d.ts`)
+- **Source maps**: Enabled for debugging
+- **publishConfig pattern**: Exports point to source for development, publishConfig.exports point to dist for publishing
+
+Build commands remain the same:
+```bash
+pnpm build      # Full build (SWC + types)
+pnpm dev        # Watch mode with SWC
+```
+
+---
+
 ## [0.3.6] - 2026-01-24
 
 ### Added

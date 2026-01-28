@@ -1,54 +1,31 @@
 {
   "name": "@delmaredigital/payload-page-tree",
-  "version": "0.3.6",
+  "version": "0.3.7-dev.0",
   "description": "Payload CMS plugin for folder-based hierarchical URL slugs with visual tree management",
   "type": "module",
   "license": "MIT",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "exports": {
     ".": {
-      "import": "./src/index.ts",
-      "types": "./src/index.ts",
-      "default": "./src/index.ts"
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
     },
     "./client": {
-      "import": "./src/exports/client.ts",
-      "types": "./src/exports/client.ts",
-      "default": "./src/exports/client.ts"
+      "import": "./dist/exports/client.js",
+      "types": "./dist/exports/client.d.ts",
+      "default": "./dist/exports/client.js"
     },
     "./rsc": {
-      "import": "./src/exports/rsc.ts",
-      "types": "./src/exports/rsc.ts",
-      "default": "./src/exports/rsc.ts"
+      "import": "./dist/exports/rsc.js",
+      "types": "./dist/exports/rsc.d.ts",
+      "default": "./dist/exports/rsc.js"
     },
-    "./theme.css": "./src/styles/theme.css"
-  },
-  "publishConfig": {
-    "exports": {
-      ".": {
-        "import": "./dist/index.js",
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "./client": {
-        "import": "./dist/exports/client.js",
-        "types": "./dist/exports/client.d.ts",
-        "default": "./dist/exports/client.js"
-      },
-      "./rsc": {
-        "import": "./dist/exports/rsc.js",
-        "types": "./dist/exports/rsc.d.ts",
-        "default": "./dist/exports/rsc.js"
-      },
-      "./theme.css": "./dist/styles/theme.css"
-    },
-    "main": "./dist/index.js",
-    "types": "./dist/index.d.ts"
+    "./theme.css": "./dist/styles/theme.css"
   },
   "files": [
-    "dist",
-    "src"
+    "dist"
   ],
   "scripts": {
     "build": "pnpm build:swc && pnpm build:types && pnpm build:styles",
@@ -83,13 +60,13 @@
     "@payloadcms/next": "^3.73.0",
     "@payloadcms/ui": "^3.73.0",
     "@swc/cli": "^0.6.0",
-    "@swc/core": "^1.10.0",
+    "@swc/core": "^1.15.11",
     "@types/node": "^22.19.7",
-    "@types/react": "^19.2.9",
+    "@types/react": "^19.2.10",
     "copyfiles": "^2.4.1",
-    "next": "^16.1.4",
+    "next": "^16.1.6",
     "payload": "^3.73.0",
-    "react": "^19.2.3",
+    "react": "^19.2.4",
     "typescript": "^5.9.3"
   },
   "keywords": [
