@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.8] - 2026-01-28
+
+### Fixed
+
+#### Reduced Published Package Size
+
+Disabled source maps (`.js.map`) and declaration maps (`.d.ts.map`) from the published package. These files doubled the unpacked size and served no purpose since source files are no longer included in the package.
+
+#### Package Exports Pointing to Source Files
+
+Fixed issue where the published package's `exports` field pointed to TypeScript source files (`src/`) instead of compiled JavaScript (`dist/`). This caused "Unknown module type" errors with Turbopack. Changed to point `exports` directly to `dist/`.
+
+---
+
 ## [0.3.7] - 2026-01-28
 
 ### Changed
@@ -12,8 +26,6 @@ Migrated from pure TypeScript compilation to SWC for faster builds:
 
 - **Build time**: Significantly faster compilation (~85ms vs several seconds with tsc)
 - **TypeScript**: Now only emits declaration files (`.d.ts`)
-- **Source maps**: Enabled for debugging
-- **publishConfig pattern**: Exports point to source for development, publishConfig.exports point to dist for publishing
 
 Build commands remain the same:
 ```bash
