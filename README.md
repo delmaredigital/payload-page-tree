@@ -14,7 +14,7 @@ A Payload CMS plugin that extends the built-in folders feature to auto-generate 
 
 ## Documentation
 
-**[Full documentation &rarr;](./docs/index.html)**
+**[Full documentation &rarr;](https://delmaredigital.github.io/payload-page-tree/)**
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/delmaredigital/payload-page-tree)
 
@@ -88,7 +88,7 @@ That's it! The plugin adds `folder`, `pageSegment`, `sortOrder`, and `slugHistor
 
 ---
 
-For configuration options, tree view features, URL history, organization scoping, extensibility, and more, see the **[full documentation](./docs/index.html)**.
+For configuration options, tree view features, URL history, organization scoping, extensibility, and more, see the **[full documentation](https://delmaredigital.github.io/payload-page-tree/)**.
 
 ## License
 
