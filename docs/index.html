@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>payload-page-tree &mdash; Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=DM+Mono:wght@400;500&family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,600;0,9..144,700;1,9..144,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #010919;
+  --bg-raised: #041020;
+  --bg-surface: #0d1b2d;
+  --bg-hover: #142235;
+  --border: #1b2a3c;
+  --border-subtle: #091628;
+  --text: #e8f0f3;
+  --text-secondary: #a5b0b6;
+  --text-muted: #59656e;
+  --accent: #00b2b3;
+  --accent-dim: #009696;
+  --accent-glow: rgba(0, 178, 179, 0.08);
+  --code-bg: #000514;
+  --code-border: #051223;
+  --success: #4ade80;
+  --warning: #fbbf24;
+  --danger: #f87171;
+  --sidebar-w: 280px;
+  --header-h: 56px;
+  --font-body: 'DM Sans', -apple-system, sans-serif;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-mono: 'DM Mono', 'SF Mono', monospace;
+  --radius: 8px;
+  --radius-sm: 5px;
+}
+
+html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 24px); }
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.7;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── HEADER ── */
+.header {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: var(--header-h);
+  background: rgba(1, 9, 25, 0.82);
+  backdrop-filter: blur(16px) saturate(1.4);
+  -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  border-bottom: 1px solid var(--border-subtle);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  gap: 16px;
+}
+
+.header-brand {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--text);
+  letter-spacing: -0.02em;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.header-brand span {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.header-badge {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 99px;
+  border: 1px solid var(--border);
+}
+
+.header-links {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.header-links a {
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  transition: color 0.15s, background 0.15s;
+}
+
+.header-links a:hover { color: var(--text); background: var(--bg-hover); }
+
+.header-links a.cta {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.header-links a.cta:hover { background: var(--accent-dim); }
+
+.menu-toggle {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+}
+
+.menu-toggle svg { display: block; }
+
+/* ── SEARCH ── */
+.search-wrap {
+  position: relative;
+  flex: 0 1 260px;
+  margin-left: 24px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 7px 12px 7px 34px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.search-input::placeholder { color: var(--text-muted); }
+.search-input:focus { border-color: var(--accent); }
+
+.search-icon {
+  position: absolute;
+  left: 10px; top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.search-kbd {
+  position: absolute;
+  right: 8px; top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--bg);
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  pointer-events: none;
+}
+
+/* ── LAYOUT ── */
+.layout {
+  display: flex;
+  margin-top: var(--header-h);
+  min-height: calc(100vh - var(--header-h));
+}
+
+/* ── SIDEBAR ── */
+.sidebar {
+  position: fixed;
+  top: var(--header-h);
+  left: 0;
+  width: var(--sidebar-w);
+  height: calc(100vh - var(--header-h));
+  overflow-y: auto;
+  padding: 20px 16px 40px;
+  border-right: 1px solid var(--border-subtle);
+  background: var(--bg);
+  z-index: 50;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.nav-section {
+  margin-bottom: 8px;
+}
+
+.nav-section-title {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  padding: 12px 12px 6px;
+}
+
+.nav-link {
+  display: block;
+  padding: 6px 12px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  text-decoration: none;
+  border-radius: var(--radius-sm);
+  transition: color 0.12s, background 0.12s;
+  line-height: 1.4;
+}
+
+.nav-link:hover { color: var(--text); background: var(--bg-hover); }
+
+.nav-link.active {
+  color: var(--accent);
+  background: var(--accent-glow);
+}
+
+.nav-link.sub {
+  padding-left: 28px;
+  font-size: 12.5px;
+}
+
+/* ── MAIN CONTENT ── */
+.main {
+  margin-left: var(--sidebar-w);
+  flex: 1;
+  min-width: 0;
+  padding: 40px 48px 80px;
+  max-width: 860px;
+}
+
+/* ── HERO ── */
+.hero {
+  padding: 48px 0 56px;
+  border-bottom: 1px solid var(--border-subtle);
+  margin-bottom: 48px;
+}
+
+.hero h1 {
+  font-family: var(--font-display);
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.15;
+  margin-bottom: 14px;
+}
+
+.hero h1 em {
+  font-style: italic;
+  color: var(--accent);
+}
+
+.hero p {
+  font-size: 17px;
+  color: var(--text-secondary);
+  max-width: 540px;
+  line-height: 1.7;
+}
+
+.hero-actions {
+  display: flex;
+  gap: 10px;
+  margin-top: 28px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: var(--radius);
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: all 0.15s;
+  cursor: pointer;
+  border: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.btn-primary:hover { background: var(--accent-dim); transform: translateY(-1px); }
+
+.btn-secondary {
+  background: var(--bg-surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.btn-secondary:hover { background: var(--bg-hover); border-color: var(--text-muted); }
+
+/* ── SECTIONS ── */
+.section {
+  margin-bottom: 56px;
+  scroll-margin-top: calc(var(--header-h) + 24px);
+}
+
+.section h2 {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  line-height: 1.3;
+}
+
+.section h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-top: 36px;
+  margin-bottom: 10px;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.section h4 {
+  font-size: 15px;
+  font-weight: 600;
+  margin-top: 28px;
+  margin-bottom: 8px;
+  color: var(--text-secondary);
+}
+
+.section p {
+  margin-bottom: 14px;
+  color: var(--text-secondary);
+}
+
+.section p strong { color: var(--text); font-weight: 500; }
+
+.section a {
+  color: var(--accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.15s;
+}
+
+.section a:hover { border-bottom-color: var(--accent); }
+
+.section ul, .section ol {
+  margin-bottom: 14px;
+  padding-left: 20px;
+  color: var(--text-secondary);
+}
+
+.section li { margin-bottom: 6px; }
+.section li code { font-size: 13px; }
+
+/* ── CODE BLOCKS ── */
+pre {
+  position: relative;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius);
+  padding: 18px 20px;
+  margin: 14px 0 18px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.65;
+  color: var(--text);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+pre::-webkit-scrollbar { height: 4px; }
+pre::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+pre .copy-btn {
+  position: absolute;
+  top: 8px; right: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s;
+}
+
+pre:hover .copy-btn { opacity: 1; }
+pre .copy-btn:hover { color: var(--text); background: var(--bg-hover); }
+
+pre .lang-tag {
+  position: absolute;
+  top: 8px; left: 12px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+  opacity: 0.6;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--bg-surface);
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--accent);
+}
+
+pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+
+/* ── SYNTAX COLORS ── */
+.hl-keyword { color: #a8b4e0; }
+.hl-string { color: #6cd4b0; }
+.hl-comment { color: #3d4f5e; font-style: italic; }
+.hl-type { color: #00b2b3; }
+.hl-func { color: #6aadeb; }
+.hl-const { color: #d4a07a; }
+.hl-prop { color: #6ec5bf; }
+
+/* ── TABLES ── */
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 14px 0 18px;
+  font-size: 13.5px;
+}
+
+th {
+  text-align: left;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-surface);
+  border-bottom: 2px solid var(--border);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  vertical-align: top;
+}
+
+td code { font-size: 12.5px; }
+
+tr:last-child td { border-bottom: none; }
+
+/* ── CALLOUTS ── */
+.callout {
+  padding: 14px 18px;
+  border-radius: var(--radius);
+  margin: 14px 0 18px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  border-left: 3px solid;
+}
+
+.callout p { margin-bottom: 0; }
+.callout p + p { margin-top: 8px; }
+
+.callout-note {
+  background: rgba(0, 178, 179, 0.06);
+  border-color: var(--accent);
+  color: var(--text-secondary);
+}
+
+.callout-warn {
+  background: rgba(251, 191, 36, 0.06);
+  border-color: var(--warning);
+  color: var(--text-secondary);
+}
+
+.callout-tip {
+  background: rgba(74, 222, 128, 0.06);
+  border-color: var(--success);
+  color: var(--text-secondary);
+}
+
+.callout strong { color: var(--text); }
+
+/* ── DETAILS / COLLAPSIBLE ── */
+details {
+  margin: 14px 0 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+details summary {
+  padding: 12px 18px;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--bg-surface);
+  transition: background 0.12s;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+details summary::-webkit-details-marker { display: none; }
+
+details summary::before {
+  content: '\25B8';
+  font-size: 12px;
+  color: var(--text-muted);
+  transition: transform 0.15s;
+}
+
+details[open] summary::before { transform: rotate(90deg); }
+details summary:hover { background: var(--bg-hover); }
+
+details .details-body {
+  padding: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+details .details-body > :first-child { margin-top: 0; }
+
+/* ── STEP INDICATOR ── */
+.steps {
+  counter-reset: step;
+}
+
+.step {
+  position: relative;
+  padding-left: 48px;
+  padding-bottom: 28px;
+  border-left: 1px solid var(--border);
+  margin-left: 14px;
+}
+
+.step:last-child { border-left: none; }
+
+.step::before {
+  counter-increment: step;
+  content: counter(step);
+  position: absolute;
+  left: -14px;
+  top: 0;
+  width: 28px;
+  height: 28px;
+  background: var(--bg-surface);
+  border: 2px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.step h3 {
+  margin-top: 0;
+  font-size: 16px;
+}
+
+/* ── INSTALL BLOCK ── */
+.install-block {
+  display: flex;
+  align-items: center;
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  gap: 12px;
+  margin: 14px 0 18px;
+}
+
+.install-block code {
+  flex: 1;
+  background: none;
+  color: var(--text);
+  padding: 0;
+}
+
+.install-block .copy-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-family: var(--font-mono);
+  transition: color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+
+.install-block .copy-btn:hover { color: var(--text); background: var(--bg-hover); }
+
+/* ── SEARCH RESULTS OVERLAY ── */
+.search-results {
+  display: none;
+  position: fixed;
+  top: var(--header-h);
+  left: 0; right: 0; bottom: 0;
+  background: rgba(1, 9, 25, 0.92);
+  backdrop-filter: blur(8px);
+  z-index: 200;
+  overflow-y: auto;
+  padding: 40px;
+}
+
+.search-results.active { display: block; }
+
+.search-results-inner {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.search-result-item {
+  display: block;
+  padding: 14px 18px;
+  margin-bottom: 4px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--text);
+  transition: background 0.12s;
+}
+
+.search-result-item:hover { background: var(--bg-surface); }
+
+.search-result-item .result-title {
+  font-weight: 500;
+  margin-top: 2px;
+}
+
+.search-result-item .result-preview {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.5;
+}
+
+.search-no-results {
+  text-align: center;
+  padding: 40px;
+  color: var(--text-muted);
+}
+
+/* ── SCROLL TO TOP ── */
+.scroll-top {
+  position: fixed;
+  bottom: 24px; right: 24px;
+  width: 40px; height: 40px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+  z-index: 50;
+}
+
+.scroll-top:hover { color: var(--text); border-color: var(--text-muted); }
+.scroll-top.visible { display: flex; }
+
+/* ── RESPONSIVE ── */
+@media (max-width: 900px) {
+  .sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s;
+  }
+
+  .sidebar.open { transform: translateX(0); box-shadow: 8px 0 30px rgba(0,0,0,0.4); }
+  .menu-toggle { display: block; }
+  .main { margin-left: 0; padding: 32px 20px 60px; }
+  .search-wrap { flex: 0 1 180px; }
+  .hero h1 { font-size: 28px; }
+
+  .sidebar-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 40;
+  }
+
+  .sidebar-overlay.active { display: block; }
+}
+
+@media (max-width: 600px) {
+  .search-wrap { display: none; }
+  .header-links a:not(.cta) { display: none; }
+  .hero-actions { flex-direction: column; }
+  .btn { justify-content: center; }
+  table { font-size: 12px; }
+  th, td { padding: 8px 10px; }
+}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="header">
+  <button class="menu-toggle" onclick="toggleSidebar()" aria-label="Menu">
+    <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  </button>
+  <div class="header-brand">
+    <span>payload</span>-page-tree
+  </div>
+  <span class="header-badge">v0.3.8</span>
+
+  <div class="search-wrap">
+    <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+    <input class="search-input" type="text" placeholder="Search docs..." id="searchInput" autocomplete="off">
+    <span class="search-kbd">/</span>
+  </div>
+
+  <div class="header-links">
+    <a href="https://github.com/delmaredigital/payload-page-tree">GitHub</a>
+    <a href="https://www.npmjs.com/package/@delmaredigital/payload-page-tree">npm</a>
+    <a href="https://demo.delmaredigital.com" class="cta">Live Demo</a>
+  </div>
+</header>
+
+<!-- SIDEBAR OVERLAY (mobile) -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+
+<!-- LAYOUT -->
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar" id="sidebar">
+    <div class="nav-section">
+      <div class="nav-section-title">Getting Started</div>
+      <a class="nav-link" href="#installation">Installation</a>
+      <a class="nav-link" href="#quick-start">Quick Start</a>
+      <a class="nav-link sub" href="#step-1-config">Plugin Config</a>
+      <a class="nav-link sub" href="#step-2-collection">Collection Setup</a>
+      <a class="nav-link sub" href="#step-3-routing">Frontend Routing</a>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Features</div>
+      <a class="nav-link" href="#features">Overview</a>
+      <a class="nav-link" href="#tree-view">Tree View</a>
+      <a class="nav-link" href="#how-it-works">How It Works</a>
+      <a class="nav-link" href="#cascading-updates">Cascading Updates</a>
+      <a class="nav-link" href="#url-history">URL History</a>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Configuration</div>
+      <a class="nav-link" href="#config-options">Options Reference</a>
+      <a class="nav-link" href="#plugin-order">Plugin Order</a>
+      <a class="nav-link" href="#org-scoping">Organization Scoping</a>
+    </div>
+
+    <div class="nav-section">
+      <div class="nav-section-title">Advanced</div>
+      <a class="nav-link" href="#extensibility">Extensibility</a>
+      <a class="nav-link" href="#existing-projects">Existing Projects</a>
+    </div>
+  </nav>
+
+  <!-- MAIN -->
+  <main class="main">
+
+    <!-- HERO -->
+    <div class="hero">
+      <h1>Page Tree for <em>Payload CMS</em></h1>
+      <p>Extend Payload's built-in folders to auto-generate hierarchical URL slugs. Drag-and-drop tree view, cascading URL updates, and URL history tracking.</p>
+      <div class="hero-actions">
+        <a href="#quick-start" class="btn btn-primary">Get Started</a>
+        <a href="https://github.com/delmaredigital/dd-starter" class="btn btn-secondary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.865 8.166 6.839 9.489.5.092.682-.217.682-.482 0-.237-.009-.866-.013-1.7-2.782.604-3.369-1.341-3.369-1.341-.454-1.155-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.003.07 1.531 1.03 1.531 1.03.892 1.529 2.341 1.087 2.91.831.092-.646.35-1.086.636-1.336-2.22-.253-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.446-1.27.098-2.647 0 0 .84-.269 2.75 1.025A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.294 2.747-1.025 2.747-1.025.546 1.377.203 2.394.1 2.647.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.309.678.919.678 1.852 0 1.336-.012 2.415-.012 2.743 0 .267.18.578.688.48C19.138 20.161 22 16.416 22 12c0-5.523-4.477-10-10-10z" fill="currentColor"/></svg>
+          Starter Template
+        </a>
+      </div>
+    </div>
+
+    <!-- ═══════ FEATURES ═══════ -->
+    <div class="section" id="features">
+      <h2>Features</h2>
+      <ul>
+        <li><strong>Minimal config</strong> &mdash; works with <code>pages</code> and <code>posts</code> collections by default (auto-detects what exists)</li>
+        <li><strong>Visual tree view</strong> &mdash; drag-and-drop reorganization in admin panel</li>
+        <li><strong>Auto-generated slugs</strong> &mdash; hierarchical URLs from folder paths (e.g., <code>/appeals/2024/spring-campaign</code>)</li>
+        <li><strong>URL history tracking</strong> &mdash; automatic audit trail of previous URLs with restore capability</li>
+        <li><strong>URL preservation</strong> &mdash; choose to keep or update URLs when moving content</li>
+        <li><strong>Collection switching</strong> &mdash; dropdown to filter by collection type (when multiple configured)</li>
+        <li><strong>Native folders</strong> &mdash; extends Payload's built-in folders feature</li>
+        <li><strong>No dummy pages</strong> &mdash; folders are purely organizational</li>
+        <li><strong>Plugin friendly</strong> &mdash; works alongside Puck, SEO, and other plugins (see <a href="#plugin-order">Plugin Order</a>)</li>
+      </ul>
+    </div>
+
+    <!-- ═══════ INSTALLATION ═══════ -->
+    <div class="section" id="installation">
+      <h2>Installation</h2>
+
+      <div class="install-block">
+        <code>pnpm add @delmaredigital/payload-page-tree</code>
+        <button class="copy-btn" onclick="copyText('pnpm add @delmaredigital/payload-page-tree', this)">Copy</button>
+      </div>
+    </div>
+
+    <!-- ═══════ QUICK START ═══════ -->
+    <div class="section" id="quick-start">
+      <h2>Quick Start</h2>
+
+      <div class="steps">
+
+        <div class="step" id="step-1-config">
+          <h3>Add the Plugin</h3>
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-comment">// src/payload.config.ts</span>
+<span class="hl-keyword">import</span> { <span class="hl-func">buildConfig</span> } <span class="hl-keyword">from</span> <span class="hl-string">'payload'</span>
+<span class="hl-keyword">import</span> { <span class="hl-func">pageTreePlugin</span> } <span class="hl-keyword">from</span> <span class="hl-string">'@delmaredigital/payload-page-tree'</span>
+<span class="hl-keyword">import</span> { Pages } <span class="hl-keyword">from</span> <span class="hl-string">'./collections/Pages'</span>
+
+<span class="hl-keyword">export default</span> <span class="hl-func">buildConfig</span>({
+  collections: [Pages],
+  plugins: [
+    <span class="hl-func">pageTreePlugin</span>(),  <span class="hl-comment">// Auto-detects 'pages' and 'posts' if they exist</span>
+  ],
+})</code></pre>
+        </div>
+
+        <div class="step" id="step-2-collection">
+          <h3>Define Your Collection</h3>
+          <p>Your collections <strong>must</strong> have a <code>slug</code> field. The plugin will make it read-only and auto-generate values from folder path + page segment.</p>
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-comment">// src/collections/Pages/index.ts</span>
+<span class="hl-keyword">import type</span> { <span class="hl-type">CollectionConfig</span> } <span class="hl-keyword">from</span> <span class="hl-string">'payload'</span>
+
+<span class="hl-keyword">export const</span> Pages: <span class="hl-type">CollectionConfig</span> = {
+  slug: <span class="hl-string">'pages'</span>,
+  fields: [
+    { name: <span class="hl-string">'title'</span>, type: <span class="hl-string">'text'</span>, required: <span class="hl-const">true</span> },
+    <span class="hl-comment">// Define a plain slug field &mdash; the plugin will manage it</span>
+    {
+      name: <span class="hl-string">'slug'</span>,
+      type: <span class="hl-string">'text'</span>,
+      required: <span class="hl-const">true</span>,
+      unique: <span class="hl-const">true</span>,
+      index: <span class="hl-const">true</span>,
+    },
+    <span class="hl-comment">// ... other fields</span>
+  ],
+}</code></pre>
+
+          <div class="callout callout-warn">
+            <p><strong>Important:</strong> Do NOT use Payload's <code>slugField()</code> helper function. Use a plain text field instead. The <code>slugField()</code> helper adds its own hooks that conflict with the plugin's auto-generation.</p>
+          </div>
+
+          <div class="callout callout-note">
+            <p><strong>Note:</strong> Pages created from the tree view are created as drafts with minimal fields (<code>title</code>, <code>folder</code>, <code>sortOrder</code>). Required field validation is skipped for drafts, so pages with required content fields will be created successfully and can be completed when editing.</p>
+          </div>
+        </div>
+
+        <div class="step" id="step-3-routing">
+          <h3>Frontend Routing</h3>
+          <p>Set up a catch-all route that queries by the full slug:</p>
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-comment">// app/[...slug]/page.tsx</span>
+<span class="hl-keyword">export default async function</span> <span class="hl-func">Page</span>({ params }: { params: { slug: <span class="hl-type">string</span>[] } }) {
+  <span class="hl-keyword">const</span> fullSlug = params.slug.<span class="hl-func">join</span>(<span class="hl-string">'/'</span>)
+
+  <span class="hl-keyword">const</span> { docs } = <span class="hl-keyword">await</span> payload.<span class="hl-func">find</span>({
+    collection: <span class="hl-string">'pages'</span>,
+    where: { slug: { equals: fullSlug } },
+    limit: <span class="hl-const">1</span>,
+  })
+
+  <span class="hl-comment">// ...</span>
+}</code></pre>
+        </div>
+
+      </div>
+
+      <div class="callout callout-tip">
+        <p><strong>That's it!</strong> The plugin automatically adds <code>folder</code>, <code>pageSegment</code>, <code>sortOrder</code>, and <code>slugHistory</code> fields to your collection, and registers the tree view at <code>/admin/page-tree</code>.</p>
+      </div>
+    </div>
+
+    <!-- ═══════ HOW IT WORKS ═══════ -->
+    <div class="section" id="how-it-works">
+      <h2>How It Works</h2>
+      <ol>
+        <li><strong>Create folders</strong> in the Payload admin with a <code>pathSegment</code> (e.g., "appeals", "2024")</li>
+        <li><strong>Nest folders</strong> to create hierarchy (e.g., "2024" under "appeals")</li>
+        <li><strong>Create a page</strong> and select a folder from the dropdown</li>
+        <li><strong>Slug auto-generates</strong> from folder path + page segment (e.g., <code>appeals/2024/spring-campaign</code>)</li>
+      </ol>
+
+      <pre><span class="lang-tag">text</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code>Folders:
+├── appeals (pathSegment: "appeals")
+│   ├── 2024 (pathSegment: "2024")
+│   └── 2025 (pathSegment: "2025")
+└── services (pathSegment: "services")
+
+Page in "2024" folder with pageSegment "spring-campaign":
+→ slug: appeals/2024/spring-campaign
+→ URL: /appeals/2024/spring-campaign</code></pre>
+    </div>
+
+    <!-- ═══════ TREE VIEW ═══════ -->
+    <div class="section" id="tree-view">
+      <h2>Tree View</h2>
+      <p>The plugin adds a visual tree view at <code>/admin/page-tree</code> for managing your page hierarchy:</p>
+      <ul>
+        <li><strong>Drag-and-drop</strong> to reorganize pages and folders (supports multi-select)</li>
+        <li><strong>Multi-select support</strong> &mdash; Cmd/Ctrl+click to select multiple items, then drag or use "Move to..."</li>
+        <li><strong>"Move to..." action</strong> &mdash; right-click menu option to select destination folder without dragging</li>
+        <li><strong>Sorting options</strong> &mdash; sort by name, slug, or status (drag-drop disabled while sorting)</li>
+        <li><strong>Collection dropdown</strong> &mdash; switch between page types (only appears when multiple collections are configured)</li>
+        <li><strong>Context menu</strong> (right-click) for actions like edit, duplicate, publish/unpublish, move, delete</li>
+        <li><strong>URL preservation</strong> &mdash; when moving folders, choose to keep existing URLs or update them</li>
+        <li><strong>Bulk URL updates</strong> &mdash; "Update All" / "Keep All" buttons for batch confirmation</li>
+        <li><strong>Regenerate URLs</strong> &mdash; manually regenerate slugs for a folder and all its contents</li>
+        <li><strong>Visual distinction</strong> &mdash; folders have subtle background styling to differentiate from pages</li>
+      </ul>
+    </div>
+
+    <!-- ═══════ CASCADING UPDATES ═══════ -->
+    <div class="section" id="cascading-updates">
+      <h2>Cascading Updates</h2>
+      <p>When you rename a folder's <code>pathSegment</code> or move a folder:</p>
+      <ul>
+        <li><strong>Keep existing URLs</strong> &mdash; pages stay at their current URLs (default for moves)</li>
+        <li><strong>Update URLs</strong> &mdash; all pages in that folder (and subfolders) get new slugs based on the new path</li>
+      </ul>
+      <p>This gives you control over URL changes &mdash; useful when you want to reorganize content without breaking existing links.</p>
+    </div>
+
+    <!-- ═══════ URL HISTORY ═══════ -->
+    <div class="section" id="url-history">
+      <h2>URL History &amp; Redirects</h2>
+      <p>The plugin automatically tracks URL changes for SEO and redirect management.</p>
+
+      <h3>Automatic History Tracking</h3>
+      <p>Every page has a <code>slugHistory</code> field that records the last 20 URL changes:</p>
+      <pre><span class="lang-tag">json</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code>{
+  <span class="hl-prop">"slug"</span>: <span class="hl-string">"marketing/about-us"</span>,
+  <span class="hl-prop">"slugHistory"</span>: [
+    { <span class="hl-prop">"slug"</span>: <span class="hl-string">"about-us"</span>, <span class="hl-prop">"changedAt"</span>: <span class="hl-string">"2024-01-15T..."</span>, <span class="hl-prop">"reason"</span>: <span class="hl-string">"move"</span> },
+    { <span class="hl-prop">"slug"</span>: <span class="hl-string">"company/about"</span>, <span class="hl-prop">"changedAt"</span>: <span class="hl-string">"2024-06-01T..."</span>, <span class="hl-prop">"reason"</span>: <span class="hl-string">"rename"</span> }
+  ]
+}</code></pre>
+
+      <p>Changes are tracked automatically when:</p>
+      <ul>
+        <li>A page is moved to a different folder (reason: <code>move</code>)</li>
+        <li>A parent folder is renamed (reason: <code>rename</code>)</li>
+        <li>URLs are regenerated via context menu (reason: <code>regenerate</code>)</li>
+        <li>A previous URL is restored (reason: <code>restore</code>)</li>
+      </ul>
+
+      <h3>Generating Redirects</h3>
+      <p>Use the redirects endpoint to build redirect maps for your frontend:</p>
+      <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-comment">// Fetch all redirect mappings</span>
+<span class="hl-keyword">const</span> res = <span class="hl-keyword">await</span> <span class="hl-func">fetch</span>(<span class="hl-string">'/api/page-tree/redirects?collection=pages'</span>)
+<span class="hl-keyword">const</span> { redirects } = <span class="hl-keyword">await</span> res.<span class="hl-func">json</span>()
+
+<span class="hl-comment">// Returns:</span>
+<span class="hl-comment">// {</span>
+<span class="hl-comment">//   "redirects": [</span>
+<span class="hl-comment">//     { "from": "/about-us", "to": "/marketing/about-us" },</span>
+<span class="hl-comment">//     { "from": "/company/about", "to": "/marketing/about-us" }</span>
+<span class="hl-comment">//   ]</span>
+<span class="hl-comment">// }</span></code></pre>
+
+      <details>
+        <summary>Next.js middleware example</summary>
+        <div class="details-body">
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-comment">// middleware.ts</span>
+<span class="hl-keyword">import</span> { <span class="hl-type">NextResponse</span> } <span class="hl-keyword">from</span> <span class="hl-string">'next/server'</span>
+
+<span class="hl-keyword">export async function</span> <span class="hl-func">middleware</span>(request: <span class="hl-type">NextRequest</span>) {
+  <span class="hl-keyword">const</span> res = <span class="hl-keyword">await</span> <span class="hl-func">fetch</span>(
+    <span class="hl-string">`${request.nextUrl.origin}/api/page-tree/redirects?collection=pages`</span>
+  )
+  <span class="hl-keyword">const</span> { redirects } = <span class="hl-keyword">await</span> res.<span class="hl-func">json</span>()
+
+  <span class="hl-keyword">const</span> redirect = redirects.<span class="hl-func">find</span>(
+    r =&gt; r.from === request.nextUrl.pathname
+  )
+  <span class="hl-keyword">if</span> (redirect) {
+    <span class="hl-keyword">return</span> NextResponse.<span class="hl-func">redirect</span>(
+      <span class="hl-keyword">new</span> <span class="hl-type">URL</span>(redirect.to, request.url), <span class="hl-const">301</span>
+    )
+  }
+}</code></pre>
+        </div>
+      </details>
+
+      <h3>Restoring Previous URLs</h3>
+      <p>Right-click a page in the tree view and select "URL History" to view all previous URLs with timestamps and reasons, or restore any previous URL.</p>
+    </div>
+
+    <!-- ═══════ CONFIG OPTIONS ═══════ -->
+    <div class="section" id="config-options">
+      <h2>Configuration Options</h2>
+
+      <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-func">pageTreePlugin</span>({
+  <span class="hl-comment">// Collections to add folder-based slugs to (default: ['pages', 'posts'])</span>
+  collections: [<span class="hl-string">'pages'</span>, <span class="hl-string">'posts'</span>],
+
+  <span class="hl-comment">// Custom folder collection slug (default: 'payload-folders')</span>
+  folderSlug: <span class="hl-string">'payload-folders'</span>,
+
+  <span class="hl-comment">// Field name for folder path segment (default: 'pathSegment')</span>
+  segmentFieldName: <span class="hl-string">'pathSegment'</span>,
+
+  <span class="hl-comment">// Field name for page segment (default: 'pageSegment')</span>
+  pageSegmentFieldName: <span class="hl-string">'pageSegment'</span>,
+
+  <span class="hl-comment">// Disable plugin hooks while preserving schema (default: false)</span>
+  disabled: <span class="hl-const">false</span>,
+
+  <span class="hl-comment">// Admin view configuration</span>
+  adminView: {
+    enabled: <span class="hl-const">true</span>,           <span class="hl-comment">// Show tree view in admin (default: true)</span>
+    path: <span class="hl-string">'/page-tree'</span>,      <span class="hl-comment">// URL path for tree view (default: '/page-tree')</span>
+  },
+
+  <span class="hl-comment">// Customize the folders collection (add access control, fields, etc.)</span>
+  customizeFolderCollection: (collection) =&gt; collection,
+})</code></pre>
+
+      <table>
+        <thead><tr><th>Option</th><th>Type</th><th>Default</th><th>Description</th></tr></thead>
+        <tbody>
+          <tr><td><code>collections</code></td><td><code>string[]</code></td><td><code>['pages', 'posts']</code></td><td>Collections to enable (auto-filters to existing)</td></tr>
+          <tr><td><code>folderSlug</code></td><td><code>string</code></td><td><code>'payload-folders'</code></td><td>Folder collection slug</td></tr>
+          <tr><td><code>segmentFieldName</code></td><td><code>string</code></td><td><code>'pathSegment'</code></td><td>Field name on folders</td></tr>
+          <tr><td><code>pageSegmentFieldName</code></td><td><code>string</code></td><td><code>'pageSegment'</code></td><td>Field name on pages</td></tr>
+          <tr><td><code>disabled</code></td><td><code>boolean</code></td><td><code>false</code></td><td>Disable hooks while keeping schema</td></tr>
+          <tr><td><code>adminView.enabled</code></td><td><code>boolean</code></td><td><code>true</code></td><td>Show tree view in admin</td></tr>
+          <tr><td><code>adminView.path</code></td><td><code>string</code></td><td><code>'/page-tree'</code></td><td>URL path for tree view</td></tr>
+          <tr><td><code>customizeFolderCollection</code></td><td><code>function</code></td><td>&mdash;</td><td>Customize the folders collection</td></tr>
+        </tbody>
+      </table>
+
+      <details>
+        <summary>Custom collections example</summary>
+        <div class="details-body">
+          <p>The plugin defaults to <code>['pages', 'posts']</code> but <strong>automatically filters to only collections that exist</strong> in your config. If you only have a <code>pages</code> collection, <code>posts</code> is silently ignored.</p>
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-func">pageTreePlugin</span>({
+  collections: [<span class="hl-string">'pages'</span>, <span class="hl-string">'articles'</span>, <span class="hl-string">'landing-pages'</span>],
+})</code></pre>
+        </div>
+      </details>
+    </div>
+
+    <!-- ═══════ PLUGIN ORDER ═══════ -->
+    <div class="section" id="plugin-order">
+      <h2>Plugin Order</h2>
+      <div class="callout callout-warn">
+        <p><strong>Critical:</strong> If using with <code>@delmaredigital/payload-puck</code>, plugin order matters. The page-tree plugin must run AFTER any plugin that creates collections it needs to manage.</p>
+      </div>
+
+      <h3>Why This Matters</h3>
+      <p>The page-tree plugin validates configured collections at initialization. If a collection doesn't exist yet (because another plugin creates it later), page-tree will silently skip it.</p>
+
+      <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-comment">// CORRECT: Puck creates Pages before page-tree runs</span>
+<span class="hl-keyword">export const</span> plugins = [
+  <span class="hl-func">createPuckPlugin</span>({ pagesCollection: <span class="hl-string">'pages'</span> }),  <span class="hl-comment">// Creates Pages collection</span>
+  <span class="hl-func">pageTreePlugin</span>({ collections: [<span class="hl-string">'pages'</span>] }),      <span class="hl-comment">// Now sees Pages</span>
+]
+
+<span class="hl-comment">// WRONG: page-tree runs before Pages exists</span>
+<span class="hl-keyword">export const</span> plugins = [
+  <span class="hl-func">pageTreePlugin</span>({ collections: [<span class="hl-string">'pages'</span>] }),      <span class="hl-comment">// Pages doesn't exist yet!</span>
+  <span class="hl-func">createPuckPlugin</span>({ pagesCollection: <span class="hl-string">'pages'</span> }),  <span class="hl-comment">// Creates Pages too late</span>
+]</code></pre>
+
+      <details>
+        <summary>Symptoms of wrong order</summary>
+        <div class="details-body">
+          <ul>
+            <li>Tree view only shows one collection when you configured multiple</li>
+            <li>Double-clicking a page navigates to the wrong collection</li>
+            <li>Console warning: <code>[payload-page-tree] Collections not found: pages</code></li>
+          </ul>
+        </div>
+      </details>
+
+      <details>
+        <summary>When order doesn't matter</summary>
+        <div class="details-body">
+          <p>If you define your collections manually (not auto-generated by plugins), order doesn't matter:</p>
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-comment">// Collections defined in config &mdash; order doesn't matter</span>
+<span class="hl-keyword">export default</span> <span class="hl-func">buildConfig</span>({
+  collections: [Pages, Posts],  <span class="hl-comment">// Both exist before any plugin runs</span>
+  plugins: [
+    <span class="hl-func">pageTreePlugin</span>({ collections: [<span class="hl-string">'pages'</span>, <span class="hl-string">'posts'</span>] }),
+    <span class="hl-func">createPuckPlugin</span>({
+      pagesCollection: <span class="hl-string">'pages'</span>,
+      autoGenerateCollection: <span class="hl-const">false</span>,
+    }),
+  ],
+})</code></pre>
+        </div>
+      </details>
+    </div>
+
+    <!-- ═══════ ORG SCOPING ═══════ -->
+    <div class="section" id="org-scoping">
+      <h2>Organization Scoping</h2>
+      <p>For multi-tenant apps where each organization has isolated content, use <code>customizeFolderCollection</code> to add organization-based access control to folders:</p>
+
+      <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-keyword">import</span> { <span class="hl-func">pageTreePlugin</span> } <span class="hl-keyword">from</span> <span class="hl-string">'@delmaredigital/payload-page-tree'</span>
+<span class="hl-keyword">import</span> { orgScopedAccess, createOrganizationField } <span class="hl-keyword">from</span> <span class="hl-string">'./access/organization'</span>
+
+<span class="hl-func">pageTreePlugin</span>({
+  collections: [<span class="hl-string">'pages'</span>],
+  customizeFolderCollection: (collection) =&gt; ({
+    ...collection,
+    access: orgScopedAccess,
+    fields: [...collection.fields, <span class="hl-func">createOrganizationField</span>()],
+  }),
+})</code></pre>
+
+      <p>This ensures:</p>
+      <ul>
+        <li>Folders are filtered by the user's active organization in the tree view</li>
+        <li>New folders are automatically assigned to the user's organization</li>
+        <li>Users can only see and manage folders belonging to their organization</li>
+      </ul>
+
+      <div class="callout callout-warn">
+        <p><strong>Migration Required:</strong> If adding organization scoping to an existing app that already has folders, you'll need to migrate existing folder data to assign them to organizations. Unassigned folders will become inaccessible.</p>
+      </div>
+    </div>
+
+    <!-- ═══════ EXTENSIBILITY ═══════ -->
+    <div class="section" id="extensibility">
+      <h2>Extensibility</h2>
+
+      <h3>Theming Outside Payload Admin</h3>
+      <p>The tree components use Payload's CSS variables for theming. When using components outside the admin panel, import the default theme:</p>
+      <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-keyword">import</span> <span class="hl-string">'@delmaredigital/payload-page-tree/theme.css'</span></code></pre>
+
+      <details>
+        <summary>Custom theme mapping (e.g., shadcn/ui)</summary>
+        <div class="details-body">
+          <pre><span class="lang-tag">css</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-type">.page-tree-wrapper</span> {
+  <span class="hl-prop">--theme-bg</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--background</span>));
+  <span class="hl-prop">--theme-input-bg</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--background</span>));
+  <span class="hl-prop">--theme-elevation-0</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--background</span>));
+  <span class="hl-prop">--theme-elevation-50</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--muted</span>));
+  <span class="hl-prop">--theme-elevation-100</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--border</span>));
+  <span class="hl-prop">--theme-elevation-150</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--border</span>));
+  <span class="hl-prop">--theme-elevation-400</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--muted-foreground</span>));
+  <span class="hl-prop">--theme-elevation-500</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--muted-foreground</span>));
+  <span class="hl-prop">--theme-elevation-600</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--foreground</span>));
+  <span class="hl-prop">--theme-elevation-700</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--foreground</span>));
+  <span class="hl-prop">--theme-elevation-800</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--foreground</span>));
+  <span class="hl-prop">--theme-success-500</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--primary</span>));
+  <span class="hl-prop">--theme-error-500</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--destructive</span>));
+  <span class="hl-prop">--theme-error-50</span>: <span class="hl-func">hsl</span>(<span class="hl-func">var</span>(<span class="hl-prop">--destructive</span>) / <span class="hl-const">0.1</span>);
+}</code></pre>
+        </div>
+      </details>
+
+      <h3>Custom Edit URLs</h3>
+      <p>Customize where "Edit" links navigate (useful for visual editors like Puck):</p>
+      <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-keyword">import</span> { <span class="hl-type">PageTreeClient</span>, <span class="hl-type">GetEditUrlFn</span> } <span class="hl-keyword">from</span> <span class="hl-string">'@delmaredigital/payload-page-tree/client'</span>
+
+<span class="hl-keyword">const</span> getEditUrl: <span class="hl-type">GetEditUrlFn</span> = (collection, id, adminRoute) =&gt; {
+  <span class="hl-keyword">return</span> <span class="hl-string">`${adminRoute}/my-editor/${collection}/${id}`</span>
+}
+
+<span class="hl-comment">// Pass to PageTreeClient component</span>
+&lt;<span class="hl-type">PageTreeClient</span> getEditUrl={getEditUrl} ... /&gt;</code></pre>
+
+      <h3>Building Custom Tree Views</h3>
+      <p>Use <code>buildTreeStructure</code> to create tree data for custom UIs:</p>
+      <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-keyword">import</span> { <span class="hl-func">buildTreeStructure</span>, <span class="hl-type">TreeNode</span> } <span class="hl-keyword">from</span> <span class="hl-string">'@delmaredigital/payload-page-tree'</span>
+
+<span class="hl-comment">// Fetch folders and pages from Payload</span>
+<span class="hl-keyword">const</span> folders = <span class="hl-keyword">await</span> payload.<span class="hl-func">find</span>({ collection: <span class="hl-string">'payload-folders'</span>, limit: <span class="hl-const">0</span> })
+<span class="hl-keyword">const</span> pages = <span class="hl-keyword">await</span> payload.<span class="hl-func">find</span>({ collection: <span class="hl-string">'pages'</span>, limit: <span class="hl-const">0</span> })
+
+<span class="hl-comment">// Build tree structure</span>
+<span class="hl-keyword">const</span> tree: <span class="hl-type">TreeNode</span>[] = <span class="hl-func">buildTreeStructure</span>(
+  folders.docs,
+  pages.docs.<span class="hl-func">map</span>(p =&gt; ({ ...p, _collection: <span class="hl-string">'pages'</span> })),
+  { collections: [<span class="hl-string">'pages'</span>] }
+)</code></pre>
+    </div>
+
+    <!-- ═══════ EXISTING PROJECTS ═══════ -->
+    <div class="section" id="existing-projects">
+      <h2>Adding to Existing Projects</h2>
+      <p>The plugin safely handles existing content:</p>
+      <ol>
+        <li><strong>Existing pages keep their slugs</strong> &mdash; the plugin only generates slugs for new pages or when explicitly requested</li>
+        <li><strong>No schema conflicts</strong> &mdash; <code>pathSegment</code> is optional, so existing folders work without modification</li>
+        <li><strong>Migrate when ready</strong> &mdash; use the "Regenerate URLs" action to update slugs for specific folders</li>
+      </ol>
+    </div>
+
+    <!-- FOOTER -->
+    <div style="border-top: 1px solid var(--border-subtle); padding-top: 32px; margin-top: 48px; color: var(--text-muted); font-size: 13px;">
+      <p>MIT License &mdash; <a href="https://github.com/delmaredigital/payload-page-tree" style="color: var(--accent); text-decoration: none;">@delmaredigital/payload-page-tree</a></p>
+    </div>
+
+  </main>
+</div>
+
+<!-- SEARCH RESULTS -->
+<div class="search-results" id="searchResults">
+  <div class="search-results-inner" id="searchResultsInner"></div>
+</div>
+
+<!-- SCROLL TO TOP -->
+<button class="scroll-top" id="scrollTop" onclick="window.scrollTo({top:0})">
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 19V5M5 12l7-7 7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</button>
+
+<script>
+// ── Sidebar toggle (mobile) ──
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('open');
+  document.getElementById('sidebarOverlay').classList.toggle('active');
+}
+
+// Close sidebar on nav click (mobile)
+document.querySelectorAll('.nav-link').forEach(function(link) {
+  link.addEventListener('click', function() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('sidebarOverlay').classList.remove('active');
+  });
+});
+
+// ── Active nav tracking ──
+var sections = document.querySelectorAll('.section, .step');
+var navLinks = document.querySelectorAll('.nav-link');
+
+var observer = new IntersectionObserver(function(entries) {
+  entries.forEach(function(entry) {
+    if (entry.isIntersecting) {
+      var id = entry.target.id;
+      navLinks.forEach(function(link) {
+        link.classList.toggle('active', link.getAttribute('href') === '#' + id);
+      });
+    }
+  });
+}, { rootMargin: '-80px 0px -70% 0px', threshold: 0 });
+
+sections.forEach(function(s) { if (s.id) observer.observe(s); });
+
+// ── Copy buttons ──
+function copyText(text, btn) {
+  navigator.clipboard.writeText(text).then(function() {
+    var orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    btn.style.color = 'var(--success)';
+    setTimeout(function() { btn.textContent = orig; btn.style.color = ''; }, 1500);
+  });
+}
+
+function copyBlock(btn) {
+  var pre = btn.closest('pre');
+  var code = pre.querySelector('code');
+  copyText(code.textContent, btn);
+}
+
+// ── Search ──
+var searchInput = document.getElementById('searchInput');
+var searchResults = document.getElementById('searchResults');
+var searchResultsInner = document.getElementById('searchResultsInner');
+
+// Build search index from sections
+var searchIndex = [];
+document.querySelectorAll('.section').forEach(function(section) {
+  var id = section.id;
+  var h2 = section.querySelector('h2');
+  var h3 = section.querySelector('h3');
+  var title = h2 ? h2.textContent : (h3 ? h3.textContent : '');
+  var text = section.textContent.substring(0, 500);
+  searchIndex.push({ id: id, title: title, text: text });
+});
+
+searchInput.addEventListener('input', function() {
+  var query = this.value.trim().toLowerCase();
+  if (query.length < 2) {
+    searchResults.classList.remove('active');
+    return;
+  }
+
+  var results = searchIndex.filter(function(item) {
+    return item.title.toLowerCase().indexOf(query) !== -1 ||
+           item.text.toLowerCase().indexOf(query) !== -1;
+  });
+
+  // Clear previous results
+  searchResultsInner.textContent = '';
+
+  if (results.length === 0) {
+    var noResults = document.createElement('div');
+    noResults.className = 'search-no-results';
+    noResults.textContent = 'No results found';
+    searchResultsInner.appendChild(noResults);
+  } else {
+    results.forEach(function(r) {
+      var link = document.createElement('a');
+      link.className = 'search-result-item';
+      link.href = '#' + r.id;
+      link.addEventListener('click', closeSearch);
+
+      var titleDiv = document.createElement('div');
+      titleDiv.className = 'result-title';
+      titleDiv.textContent = r.title;
+      link.appendChild(titleDiv);
+
+      var idx = r.text.toLowerCase().indexOf(query);
+      if (idx >= 0) {
+        var previewDiv = document.createElement('div');
+        previewDiv.className = 'result-preview';
+        var start = Math.max(0, idx - 40);
+        var end = Math.min(r.text.length, idx + query.length + 60);
+
+        if (start > 0) previewDiv.appendChild(document.createTextNode('...'));
+        previewDiv.appendChild(document.createTextNode(r.text.substring(start, idx)));
+        var mark = document.createElement('mark');
+        mark.textContent = r.text.substring(idx, idx + query.length);
+        previewDiv.appendChild(mark);
+        previewDiv.appendChild(document.createTextNode(r.text.substring(idx + query.length, end)));
+        if (end < r.text.length) previewDiv.appendChild(document.createTextNode('...'));
+
+        link.appendChild(previewDiv);
+      }
+
+      searchResultsInner.appendChild(link);
+    });
+  }
+
+  searchResults.classList.add('active');
+});
+
+function closeSearch() {
+  searchResults.classList.remove('active');
+  searchInput.value = '';
+}
+
+// Keyboard shortcut: / to focus search
+document.addEventListener('keydown', function(e) {
+  if (e.key === '/' && document.activeElement !== searchInput) {
+    e.preventDefault();
+    searchInput.focus();
+  }
+  if (e.key === 'Escape') {
+    closeSearch();
+    searchInput.blur();
+  }
+});
+
+// ── Scroll to top button ──
+var scrollTopBtn = document.getElementById('scrollTop');
+window.addEventListener('scroll', function() {
+  scrollTopBtn.classList.toggle('visible', window.scrollY > 400);
+}, { passive: true });
+</script>
+</body>
+</html>
