@@ -57,15 +57,15 @@
     "sonner": "^2.0.7"
   },
   "devDependencies": {
-    "@payloadcms/next": "^3.73.0",
-    "@payloadcms/ui": "^3.73.0",
+    "@payloadcms/next": "^3.78.0",
+    "@payloadcms/ui": "^3.78.0",
     "@swc/cli": "^0.6.0",
-    "@swc/core": "^1.15.11",
-    "@types/node": "^22.19.7",
-    "@types/react": "^19.2.10",
+    "@swc/core": "^1.15.18",
+    "@types/node": "^24.11.0",
+    "@types/react": "^19.2.14",
     "copyfiles": "^2.4.1",
     "next": "^16.1.6",
-    "payload": "^3.73.0",
+    "payload": "^3.78.0",
     "react": "^19.2.4",
     "typescript": "^5.9.3"
   },
