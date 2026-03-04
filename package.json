@@ -1,6 +1,6 @@
 {
   "name": "@delmaredigital/payload-page-tree",
-  "version": "0.3.9",
+  "version": "0.3.10-dev.4",
   "description": "Payload CMS plugin for folder-based hierarchical URL slugs with visual tree management",
   "type": "module",
   "license": "MIT",
@@ -33,7 +33,7 @@
     "build:types": "tsc --emitDeclarationOnly --outDir dist",
     "build:styles": "copyfiles -u 1 \"src/**/*.css\" dist",
     "dev": "swc ./src -d ./dist --strip-leading-paths --watch",
-    "dev-publish": "pnpm build && pnpm version prerelease --preid=dev --no-git-tag-version && pnpm publish --registry http://localhost:4873 --no-git-checks",
+    "dev-publish": "pnpm build && pnpm version prerelease --preid=dev --no-git-tag-version && pnpm publish --registry http://localhost:4873 --no-git-checks --tag dev",
     "clean": "rm -rf dist",
     "prepublishOnly": "pnpm build"
   },
