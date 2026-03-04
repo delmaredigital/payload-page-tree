@@ -1,4 +1,5 @@
 import type { CollectionBeforeChangeHook } from 'payload'
+import type { BuildSlugFn } from '../types.js'
 import type { SlugChangeReason, SlugHistoryEntry } from '../types.js'
 import { getFolderPath, slugify } from '../utils/getFolderPath.js'
 
@@ -7,6 +8,7 @@ interface BuildSlugOptions {
   segmentFieldName: string
   pageSegmentFieldName: string
   folderFieldName: string
+  buildSlug?: BuildSlugFn
 }
 
 /** Maximum number of slug history entries to keep per page */
@@ -29,7 +31,7 @@ const MAX_SLUG_HISTORY = 20
  * choose "Update URLs" when moving folders in the tree view.
  */
 export function createBuildSlugHook(options: BuildSlugOptions): CollectionBeforeChangeHook {
-  const { folderSlug, segmentFieldName, pageSegmentFieldName, folderFieldName } = options
+  const { folderSlug, segmentFieldName, pageSegmentFieldName, folderFieldName, buildSlug } = options
 
   return async ({ data, req, operation, originalDoc, context }) => {
     if (!data) return data
@@ -89,7 +91,17 @@ export function createBuildSlugHook(options: BuildSlugOptions): CollectionBefore
     const folderPath = await getFolderPath(folderId, req.payload, folderSlug, segmentFieldName)
 
     // Build the full slug
-    const newSlug = folderPath ? `${folderPath}/${pageSegment}` : pageSegment
+    let newSlug: string
+    if (buildSlug) {
+      newSlug = await buildSlug({
+        folderPath,
+        pageSegment,
+        doc: data,
+        operation,
+      })
+    } else {
+      newSlug = folderPath ? `${folderPath}/${pageSegment}` : pageSegment
+    }
 
     // Track slug history if slug is changing on an existing document
     if (operation === 'update' && originalDoc?.slug && originalDoc.slug !== newSlug) {

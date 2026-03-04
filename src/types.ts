@@ -1,3 +1,32 @@
+/**
+ * Arguments passed to the custom slug builder function
+ */
+export interface BuildSlugArgs {
+  /** Full folder path (e.g., "appeals/2024") or null if no folder */
+  folderPath: string | null
+  /** The page's own URL segment */
+  pageSegment: string
+  /** The document data being saved */
+  doc: Record<string, unknown>
+  /** Whether this is a create or update operation */
+  operation: 'create' | 'update'
+}
+
+/**
+ * Custom slug builder function.
+ * Return the desired slug string. Can be async.
+ *
+ * @example
+ * ```ts
+ * // Flat slugs (ignore folder hierarchy)
+ * buildSlug: ({ pageSegment }) => pageSegment
+ *
+ * // Random IDs
+ * buildSlug: ({ doc }) => doc.customId as string || nanoid()
+ * ```
+ */
+export type BuildSlugFn = (args: BuildSlugArgs) => string | Promise<string>
+
 export interface PageTreePluginConfig {
   /**
    * Collections to add folder-based slugs to
@@ -29,6 +58,19 @@ export interface PageTreePluginConfig {
    * @default false
    */
   disabled?: boolean
+
+  /**
+   * Custom slug builder function.
+   * When provided, replaces the default `folderPath/pageSegment` concatenation.
+   * Receives folder path, page segment, document data, and operation type.
+   *
+   * @example
+   * ```ts
+   * // Flat slugs — tree is organizational only
+   * buildSlug: ({ pageSegment }) => pageSegment
+   * ```
+   */
+  buildSlug?: BuildSlugFn
 
   /**
    * Admin view configuration
