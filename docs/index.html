@@ -778,6 +778,7 @@ details .details-body > :first-child { margin-top: 0; }
     <div class="nav-section">
       <div class="nav-section-title">Configuration</div>
       <a class="nav-link" href="#config-options">Options Reference</a>
+      <a class="nav-link" href="#custom-slugs">Custom Slug Generation</a>
       <a class="nav-link" href="#plugin-order">Plugin Order</a>
       <a class="nav-link" href="#org-scoping">Organization Scoping</a>
     </div>
@@ -1048,6 +1049,9 @@ Page in "2024" folder with pageSegment "spring-campaign":
     path: <span class="hl-string">'/page-tree'</span>,      <span class="hl-comment">// URL path for tree view (default: '/page-tree')</span>
   },
 
+  <span class="hl-comment">// Custom slug builder (replaces default folderPath/pageSegment)</span>
+  <span class="hl-func">buildSlug</span>: ({ pageSegment }) =&gt; pageSegment,
+
   <span class="hl-comment">// Customize the folders collection (add access control, fields, etc.)</span>
   customizeFolderCollection: (collection) =&gt; collection,
 })</code></pre>
@@ -1062,6 +1066,7 @@ Page in "2024" folder with pageSegment "spring-campaign":
           <tr><td><code>disabled</code></td><td><code>boolean</code></td><td><code>false</code></td><td>Disable hooks while keeping schema</td></tr>
           <tr><td><code>adminView.enabled</code></td><td><code>boolean</code></td><td><code>true</code></td><td>Show tree view in admin</td></tr>
           <tr><td><code>adminView.path</code></td><td><code>string</code></td><td><code>'/page-tree'</code></td><td>URL path for tree view</td></tr>
+          <tr><td><code>buildSlug</code></td><td><code>function</code></td><td>&mdash;</td><td>Custom slug builder (<a href="#custom-slugs">details</a>)</td></tr>
           <tr><td><code>customizeFolderCollection</code></td><td><code>function</code></td><td>&mdash;</td><td>Customize the folders collection</td></tr>
         </tbody>
       </table>
@@ -1075,6 +1080,79 @@ Page in "2024" folder with pageSegment "spring-campaign":
 })</code></pre>
         </div>
       </details>
+    </div>
+
+    <!-- ═══════ CUSTOM SLUG GENERATION ═══════ -->
+    <div class="section" id="custom-slugs">
+      <h2>Custom Slug Generation</h2>
+      <p>By default, slugs are built as <code>folderPath/pageSegment</code> (e.g., <code>appeals/2024/spring/my-page</code>). The <code>buildSlug</code> callback lets you replace this with any custom logic.</p>
+
+      <h3>Use Cases</h3>
+      <ul>
+        <li><strong>Flat slugs</strong> &mdash; Use the tree for content organization without affecting URLs</li>
+        <li><strong>Random IDs</strong> &mdash; URLs that never change regardless of tree structure</li>
+        <li><strong>Custom patterns</strong> &mdash; Collection-aware or locale-based slug schemes</li>
+      </ul>
+
+      <h3>Callback Signature</h3>
+      <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-keyword">type</span> <span class="hl-type">BuildSlugFn</span> = (args: {
+  folderPath: <span class="hl-type">string</span> | <span class="hl-const">null</span>       <span class="hl-comment">// e.g., "appeals/2024" or null</span>
+  pageSegment: <span class="hl-type">string</span>              <span class="hl-comment">// The page's own URL segment</span>
+  doc: <span class="hl-type">Record</span>&lt;<span class="hl-type">string</span>, <span class="hl-type">unknown</span>&gt;    <span class="hl-comment">// The document data being saved</span>
+  operation: <span class="hl-string">'create'</span> | <span class="hl-string">'update'</span> <span class="hl-comment">// Current operation type</span>
+}) =&gt; <span class="hl-type">string</span> | <span class="hl-type">Promise</span>&lt;<span class="hl-type">string</span>&gt;</code></pre>
+
+      <h3>Examples</h3>
+
+      <details>
+        <summary>Flat slugs (tree is organizational only)</summary>
+        <div class="details-body">
+          <p>Ignore the folder hierarchy entirely. URLs are just the page segment, so reorganizing the tree never changes URLs.</p>
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-func">pageTreePlugin</span>({
+  <span class="hl-func">buildSlug</span>: ({ pageSegment }) =&gt; pageSegment,
+})</code></pre>
+          <p>A page with segment <code>my-page</code> in folder <code>appeals/2024</code> gets slug <code>my-page</code> instead of <code>appeals/2024/my-page</code>.</p>
+        </div>
+      </details>
+
+      <details>
+        <summary>Random IDs</summary>
+        <div class="details-body">
+          <p>Use a custom ID field or generate random slugs. URLs never change regardless of tree structure or page renaming.</p>
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-keyword">import</span> { nanoid } <span class="hl-keyword">from</span> <span class="hl-string">'nanoid'</span>
+
+<span class="hl-func">pageTreePlugin</span>({
+  <span class="hl-func">buildSlug</span>: ({ doc, operation }) =&gt; {
+    <span class="hl-comment">// Keep existing slug on update, generate new one on create</span>
+    <span class="hl-keyword">if</span> (operation === <span class="hl-string">'update'</span> &amp;&amp; doc.slug) <span class="hl-keyword">return</span> doc.slug <span class="hl-keyword">as</span> <span class="hl-type">string</span>
+    <span class="hl-keyword">return</span> <span class="hl-func">nanoid</span>(<span class="hl-num">21</span>)
+  },
+})</code></pre>
+        </div>
+      </details>
+
+      <details>
+        <summary>Shallow hierarchy (one level only)</summary>
+        <div class="details-body">
+          <p>Use only the immediate parent folder, not the full path. Limits URL depth regardless of tree nesting.</p>
+          <pre><span class="lang-tag">ts</span><button class="copy-btn" onclick="copyBlock(this)">Copy</button><code><span class="hl-func">pageTreePlugin</span>({
+  <span class="hl-func">buildSlug</span>: ({ folderPath, pageSegment }) =&gt; {
+    <span class="hl-keyword">if</span> (!folderPath) <span class="hl-keyword">return</span> pageSegment
+    <span class="hl-comment">// Take only the last folder segment</span>
+    <span class="hl-keyword">const</span> lastFolder = folderPath.split(<span class="hl-string">'/'</span>).pop()
+    <span class="hl-keyword">return</span> <span class="hl-string">`${lastFolder}/${pageSegment}`</span>
+  },
+})</code></pre>
+        </div>
+      </details>
+
+      <div class="callout callout-info">
+        <p><strong>Error handling:</strong> If your <code>buildSlug</code> function throws an error or returns a falsy value, the plugin automatically falls back to the default <code>folderPath/pageSegment</code> behavior and logs a warning.</p>
+      </div>
+
+      <div class="callout callout-info">
+        <p><strong>Fully additive:</strong> This option is completely optional. Existing configurations work identically without any changes. URL history tracking, cascading updates, and redirects all continue to work with custom slugs.</p>
+      </div>
     </div>
 
     <!-- ═══════ PLUGIN ORDER ═══════ -->

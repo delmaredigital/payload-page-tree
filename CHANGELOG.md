@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-03-03
+
+### Added
+
+- **`buildSlug` callback**: Optional custom slug builder function that replaces the default `folderPath/pageSegment` concatenation. Use this when you want flat slugs (tree is organizational only), random IDs, or any custom slug pattern. ([#1](https://github.com/delmaredigital/payload-page-tree/issues/1))
+
+```ts
+pageTreePlugin({
+  // Flat slugs — ignore folder hierarchy
+  buildSlug: ({ pageSegment }) => pageSegment,
+
+  // Random IDs
+  buildSlug: ({ doc }) => doc.customId as string || nanoid(),
+})
+```
+
+This is a fully additive, non-breaking change. Existing configurations work identically without any modifications.
+
+---
+
 ## [0.3.8] - 2026-01-28
 
 ### Fixed
