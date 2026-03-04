@@ -91,16 +91,25 @@ export function createBuildSlugHook(options: BuildSlugOptions): CollectionBefore
     const folderPath = await getFolderPath(folderId, req.payload, folderSlug, segmentFieldName)
 
     // Build the full slug
+    const defaultSlug = folderPath ? `${folderPath}/${pageSegment}` : pageSegment
     let newSlug: string
     if (buildSlug) {
-      newSlug = await buildSlug({
-        folderPath,
-        pageSegment,
-        doc: data,
-        operation,
-      })
+      try {
+        newSlug = await buildSlug({
+          folderPath,
+          pageSegment,
+          doc: data,
+          operation,
+        })
+      } catch (error) {
+        console.error('[payload-page-tree] buildSlug callback error, falling back to default:', error)
+        newSlug = defaultSlug
+      }
+      if (!newSlug) {
+        newSlug = defaultSlug
+      }
     } else {
-      newSlug = folderPath ? `${folderPath}/${pageSegment}` : pageSegment
+      newSlug = defaultSlug
     }
 
     // Track slug history if slug is changing on an existing document
