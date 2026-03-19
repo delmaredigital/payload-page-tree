@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2026-03-18
+
+### Fixed
+
+- **Folder rename now updates pathSegment**: Renaming a folder correctly updates its URL segment to match the new name. Previously, the folder's `pathSegment` was only updated when "Update URLs" was explicitly chosen, leaving the slug out of sync with the folder name.
+- **Context menu viewport overflow**: Right-click context menu now repositions to stay within the viewport when opened near the bottom or right edge of the screen.
+
+### Added
+
+- **Rename confirmation for folders with children**: Renaming a folder that contains pages now prompts whether to update child page URLs or keep them unchanged, preventing accidental URL changes.
+
+---
+
 ## [0.4.0] - 2026-03-03
 
 ### Added

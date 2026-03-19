@@ -88,6 +88,12 @@ interface EditUrlState {
   folderPath: string
 }
 
+interface PendingRename {
+  node: TreeNodeType
+  newName: string
+  affectedCount: number
+}
+
 // Helper to extract raw database ID from prefixed tree ID
 function getRawId(node: TreeNodeType): string {
   // If rawId is available, use it; otherwise strip the prefix from id
@@ -189,6 +195,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [urlHistory, setUrlHistory] = useState<UrlHistoryState | null>(null)
   const [editUrlState, setEditUrlState] = useState<EditUrlState | null>(null)
+  const [pendingRename, setPendingRename] = useState<PendingRename | null>(null)
 
   // Compute sorted data
   const sortedData = useMemo(() => sortTreeData(data, sortOption), [data, sortOption])
@@ -438,37 +445,39 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
     setPendingBulkMove(null)
   }, [])
 
-  // Handle rename
-  const handleRename = useCallback(
-    async ({ id, name }: { id: string; name: string }) => {
-      const node = findNode(data, id)
-      if (!node) return
-
-      const originalName = node.name
-
+  // Execute a rename with optional slug update
+  const executeRename = useCallback(
+    async (node: TreeNodeType, newName: string, updateSlugs: boolean) => {
       // Optimistic update
-      const newData = updateNodeInTree(data, id, { name })
+      const newData = updateNodeInTree(data, node.id, { name: newName })
       setData(newData)
 
-      // API call - use raw ID without prefix
       try {
         await apiCall('/page-tree/rename', {
           method: 'POST',
           body: JSON.stringify({
             type: node.type,
             id: getRawId(node),
-            name,
+            name: newName,
             collection: node.collection,
+            updateSlugs,
           }),
         })
-        toast.success(`Renamed to "${name}"`)
+        if (updateSlugs && node.type === 'folder') {
+          toast.success(`Renamed to "${newName}" and updated child URLs`)
+        } else {
+          toast.success(`Renamed to "${newName}"`)
+        }
+        if (updateSlugs) {
+          // Refresh to show updated slugs
+          window.location.reload()
+        }
       } catch (error) {
         console.error('Rename failed:', error)
         setData(treeData)
-        // Show user-friendly error message
         const message = error instanceof Error ? error.message : 'Rename failed'
         if (message.includes('unique') || message.includes('duplicate') || message.includes('already exists')) {
-          toast.error(`A ${node.type} named "${name}" already exists in this location`)
+          toast.error(`A ${node.type} named "${newName}" already exists in this location`)
         } else {
           toast.error(message)
         }
@@ -476,6 +485,43 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
     },
     [data, treeData, apiCall],
   )
+
+  // Handle rename - prompt for folders with children
+  const handleRename = useCallback(
+    async ({ id, name }: { id: string; name: string }) => {
+      const node = findNode(data, id)
+      if (!node) return
+
+      // For folders with nested pages, prompt about slug updates
+      if (node.type === 'folder') {
+        const { pages } = countNestedItems(node)
+        if (pages > 0) {
+          setPendingRename({ node, newName: name, affectedCount: pages })
+          return
+        }
+      }
+
+      // No children affected, just rename
+      executeRename(node, name, false)
+    },
+    [data, executeRename],
+  )
+
+  // Confirm rename operation
+  const confirmRename = useCallback(
+    (updateSlugs: boolean) => {
+      if (pendingRename) {
+        executeRename(pendingRename.node, pendingRename.newName, updateSlugs)
+        setPendingRename(null)
+      }
+    },
+    [pendingRename, executeRename],
+  )
+
+  // Cancel rename operation
+  const cancelRename = useCallback(() => {
+    setPendingRename(null)
+  }, [])
 
   // Handle context menu actions
   const handleContextAction = useCallback(
@@ -1022,6 +1068,27 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
             />
           )
         })()}
+
+        {/* Rename Confirmation Modal */}
+        <ConfirmationModal
+          isOpen={pendingRename !== null}
+          title="Rename Folder"
+          message={`Renaming "${pendingRename?.node.name}" to "${pendingRename?.newName}" - what should happen to child page URLs?`}
+          details={`${pendingRename?.affectedCount} page${pendingRename?.affectedCount === 1 ? '' : 's'} in this folder.`}
+          onCancel={cancelRename}
+          actions={[
+            {
+              label: 'Keep existing URLs',
+              onClick: () => confirmRename(false),
+              variant: 'secondary',
+            },
+            {
+              label: 'Update URLs',
+              onClick: () => confirmRename(true),
+              variant: 'primary',
+            },
+          ]}
+        />
 
         {/* Delete Confirmation Modal */}
         <ConfirmationModal

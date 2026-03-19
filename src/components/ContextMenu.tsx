@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useCallback, useRef, useLayoutEffect, type ReactNode } from 'react'
 import type { TreeNode, ContextMenuAction } from '../types.js'
 
 interface ContextMenuState {
@@ -104,6 +104,34 @@ function ContextMenuOverlay({
   puckEnabled = false,
 }: ContextMenuOverlayProps) {
   const isFolder = node.type === 'folder'
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [position, setPosition] = useState({ left: x, top: y })
+
+  useLayoutEffect(() => {
+    const menu = menuRef.current
+    if (!menu) return
+
+    const rect = menu.getBoundingClientRect()
+    const viewportWidth = window.innerWidth
+    const viewportHeight = window.innerHeight
+    const padding = 8
+
+    let left = x
+    let top = y
+
+    if (x + rect.width > viewportWidth - padding) {
+      left = x - rect.width
+    }
+    if (y + rect.height > viewportHeight - padding) {
+      top = y - rect.height
+    }
+
+    // Clamp to keep fully visible
+    left = Math.max(padding, left)
+    top = Math.max(padding, top)
+
+    setPosition({ left, top })
+  }, [x, y])
 
   return (
     <>
@@ -123,10 +151,11 @@ function ContextMenuOverlay({
 
       {/* Menu */}
       <div
+        ref={menuRef}
         style={{
           position: 'fixed',
-          left: x,
-          top: y,
+          left: position.left,
+          top: position.top,
           zIndex: 9999,
           minWidth: '180px',
           backgroundColor: 'var(--theme-bg)',

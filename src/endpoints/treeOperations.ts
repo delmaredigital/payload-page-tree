@@ -605,8 +605,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           id,
           data: {
             name,
-            // Also update pathSegment when updateSlugs is true, so URL reflects new name
-            ...(updateSlugs && { pathSegment: slugify(name) }),
+            pathSegment: slugify(name),
           },
           context: { updateSlugs, slugChangeReason: 'rename' },
           req,
