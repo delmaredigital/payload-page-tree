@@ -49,35 +49,49 @@ export function createBuildSlugHook(options: BuildSlugOptions): CollectionBefore
 
     const newFolderId = getIdValue(data[folderFieldName])
     const originalFolderId = getIdValue(originalDoc?.[folderFieldName])
-    // Only consider it changed if data explicitly provides a different folder
-    const folderChanged = newFolderId !== undefined && newFolderId !== originalFolderId
+    // Only consider folder changed if data explicitly provides a different value.
+    // Critically: data.folder=null from Payload's admin form is NOT a move to root —
+    // it's a form serialization artifact. Only treat null as intentional when
+    // we're in a tree operation (has slugChangeReason context).
+    const folderChanged =
+      newFolderId !== undefined &&
+      newFolderId !== originalFolderId &&
+      (newFolderId != null || !!context?.slugChangeReason)
 
     const newSegment = data[pageSegmentFieldName]
     const originalSegment = originalDoc?.[pageSegmentFieldName]
     const segmentChanged = newSegment !== undefined && newSegment !== originalSegment
 
-    // Preserve existing slugs on update unless:
-    // - context.updateSlugs is explicitly true
-    // - folder changed
-    // - pageSegment changed
-    // This prevents breaking URLs when editing unrelated page content
-    if (operation === 'update' && originalDoc?.slug && !context?.updateSlugs && !folderChanged && !segmentChanged) {
-      return data
+    // Slug preservation logic:
+    // 1. context.updateSlugs === false (explicit "Keep existing URL"): ALWAYS preserve slug
+    // 2. context.updateSlugs === true (explicit "Update URL"): ALWAYS regenerate slug
+    // 3. context.updateSlugs === undefined (default, e.g. Payload admin edit):
+    //    regenerate only if folder or pageSegment changed
+    if (operation === 'update' && originalDoc?.slug) {
+      if (context?.updateSlugs === false) {
+        // Explicit "Keep existing URL" — never touch the slug
+        return data
+      }
+      if (context?.updateSlugs !== true && !folderChanged && !segmentChanged) {
+        // Default behavior — preserve slug when nothing relevant changed
+        return data
+      }
     }
 
-    // Get folder ID - prefer data, fall back to originalDoc for cascade updates
-    const dataFolder = data[folderFieldName]
-    const originalFolder = originalDoc?.[folderFieldName]
-    const effectiveFolder = dataFolder !== undefined ? dataFolder : originalFolder
-    const folderId = getIdValue(effectiveFolder)
+    // Get folder ID for path building.
+    // Use the new folder only if it genuinely changed (tree move or admin UI folder edit).
+    // Otherwise always use originalDoc to prevent losing folder path from form artifacts.
+    const folderId = folderChanged ? newFolderId : (originalFolderId ?? newFolderId)
 
     // Get pageSegment - prefer data, fall back to originalDoc for cascade updates
+    // Use loose check (!value) to catch undefined, null, and empty string
     let pageSegment = data[pageSegmentFieldName]
-    if (pageSegment === undefined && originalDoc?.[pageSegmentFieldName]) {
+    if (!pageSegment && originalDoc?.[pageSegmentFieldName]) {
       pageSegment = originalDoc[pageSegmentFieldName]
     }
-    // Only auto-generate from title if truly empty and it's a new page or title is changing
-    if (!pageSegment && data.title) {
+    // Only auto-generate from title on CREATE, or if truly no segment exists anywhere
+    // This prevents overwriting an intentional segment with slugify(title) during moves/updates
+    if (!pageSegment && data.title && (operation === 'create' || !originalDoc?.[pageSegmentFieldName])) {
       pageSegment = slugify(data.title)
       data[pageSegmentFieldName] = pageSegment
     }

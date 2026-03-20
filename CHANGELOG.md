@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.12] - 2026-03-20
+
+### Fixed
+
+- **"Keep existing URL" ignored on move**: Choosing "Keep existing URL" when moving a page or folder still regenerated the slug. The hook now uses strict equality (`=== false`) to distinguish an explicit "don't update" from the default unset state.
+- **Slug loses folder path when editing pageSegment in admin UI**: Editing the `pageSegment` field through Payload's admin panel produced a slug with no folder prefix (e.g. `complete` instead of `registration/complete`). The hook now treats `data.folder=null` from admin form serialization as unchanged, only accepting null as an intentional "move to root" during tree operations.
+- **pageSegment overwritten with slugified title during moves**: Moving a page could replace its `pageSegment` with `slugify(title)` if the segment field was empty-string or null (rather than undefined). The fallback now uses a loose check and restricts auto-generation from title to `create` operations only.
+
+---
+
 ## [0.4.1] - 2026-03-18
 
 ### Fixed
