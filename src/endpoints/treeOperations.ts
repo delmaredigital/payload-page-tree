@@ -1,6 +1,12 @@
 import type { PayloadHandler, CollectionSlug, Payload, PayloadRequest } from 'payload'
 import type { MovePayload, ReorderPayload, CreatePayload } from '../types.js'
 import { slugify } from '../utils/getFolderPath.js'
+import {
+  findAvailableSegment,
+  isSegmentAvailable,
+  countDescendantPages,
+  slugifyName,
+} from '../utils/segments.js'
 
 interface TreeEndpointOptions {
   collections: string[]
@@ -219,53 +225,72 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
       }
 
       const { type, name, parentId, collection: targetCollection } = body
+      const baseSegment = slugifyName(name)
 
       if (type === 'folder') {
-        // Generate unique folder name
-        const uniqueName = await generateUniqueName(
-          req.payload,
-          name,
-          'folder',
-          parentId || null,
-          { folderSlug, collections }
-        )
+        const pathSegment = await findAvailableSegment({
+          payload: req.payload,
+          parentId: parentId || null,
+          type: 'folder',
+          baseSegment,
+          collections,
+          folderSlug,
+        })
 
         const result = await req.payload.create({
           collection: folderSlug as CollectionSlug,
           data: {
-            name: uniqueName,
-            pathSegment: slugify(uniqueName), // Required field - auto-generated from name
+            name, // unchanged — display field is independent of segment
+            pathSegment,
             folder: parentId || null,
             sortOrder: 0,
           },
           req,
         })
-        return Response.json({ success: true, id: result.id, type: 'folder', name: uniqueName })
+
+        return Response.json({
+          success: true,
+          id: result.id,
+          type: 'folder',
+          name,
+          pathSegment,
+          collisionResolved: pathSegment !== baseSegment,
+        })
       } else {
-        // Create page in specified collection or first collection
         const collectionSlug = targetCollection || collections[0]
 
-        // Generate unique page name
-        const uniqueName = await generateUniqueName(
-          req.payload,
-          name,
-          'page',
-          parentId || null,
-          { collection: collectionSlug, folderSlug, collections }
-        )
+        const pageSegment = await findAvailableSegment({
+          payload: req.payload,
+          parentId: parentId || null,
+          type: 'page',
+          collection: collectionSlug,
+          baseSegment,
+          collections,
+          folderSlug,
+        })
 
         const result = await req.payload.create({
           collection: collectionSlug as CollectionSlug,
-          draft: true, // Skip required field validation for drafts
+          draft: true,
           data: {
-            title: uniqueName,
+            title: name, // unchanged — display field is independent of segment
+            pageSegment,
             folder: parentId || null,
             sortOrder: 0,
             _status: 'draft',
           },
           req,
         })
-        return Response.json({ success: true, id: result.id, type: 'page', collection: collectionSlug, name: uniqueName })
+
+        return Response.json({
+          success: true,
+          id: result.id,
+          type: 'page',
+          collection: collectionSlug,
+          title: name,
+          pageSegment,
+          collisionResolved: pageSegment !== baseSegment,
+        })
       }
     } catch (error) {
       console.error('[payload-page-tree] Create error:', error)
