@@ -57,6 +57,25 @@ interface PendingMoveConfirmation {
   expectedSegment: string
 }
 
+interface PendingBulkMoveTypeGate {
+  /** The folder currently being type-to-confirmed */
+  current: BulkMoveItem
+  /** The pre-validated segment the user must type */
+  expectedSegment: string
+  /** Other folders waiting for type-to-confirm after the current one */
+  queue: BulkMoveItem[]
+  /** Whether to resume the bulk flow after the gate completes (or is cancelled) */
+  resumeBulk: boolean
+}
+
+// Returns the folder's pathSegment if non-empty, or null if missing/empty.
+// A null result MUST cause the caller to refuse the type-to-confirm flow,
+// because an empty expected text trivially satisfies the gate (`'' === ''`)
+// and defeats the entire safety mechanism.
+function getValidatedSegment(node: TreeNodeType): string | null {
+  return node.pathSegment && node.pathSegment.length > 0 ? node.pathSegment : null
+}
+
 interface BulkMoveItem {
   dragId: string
   node: TreeNodeType
@@ -194,6 +213,8 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
   const [pendingMoveConfirmation, setPendingMoveConfirmation] =
     useState<PendingMoveConfirmation | null>(null)
   const [pendingBulkMove, setPendingBulkMove] = useState<PendingBulkMove | null>(null)
+  const [pendingBulkMoveTypeGate, setPendingBulkMoveTypeGate] =
+    useState<PendingBulkMoveTypeGate | null>(null)
   const [moveToModal, setMoveToModal] = useState<MoveToState | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
   const [urlHistory, setUrlHistory] = useState<UrlHistoryState | null>(null)
@@ -430,31 +451,75 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
     setPendingMoveConfirmation(null)
   }, [])
 
+  // Advances the bulk move past `fromIndex`, auto-executing items that don't
+  // require confirmation, and stopping at the next item that does (or clearing
+  // pendingBulkMove if there are none left). Returns true if the bulk modal
+  // should remain open, false if it was cleared.
+  const advanceBulkMove = useCallback(
+    (bulk: PendingBulkMove, fromIndex: number): boolean => {
+      let nextIndex = fromIndex
+      while (nextIndex < bulk.items.length) {
+        if (bulk.items[nextIndex].requiresConfirmation) break
+        const item = bulk.items[nextIndex]
+        executeMove([item.dragId], item.parentId, item.index, item.node, false)
+        nextIndex++
+      }
+
+      if (nextIndex >= bulk.items.length) {
+        setPendingBulkMove(null)
+        return false
+      }
+      setPendingBulkMove({ ...bulk, currentIndex: nextIndex })
+      return true
+    },
+    [executeMove],
+  )
+
   // Confirm single item in bulk move
   const confirmBulkMoveItem = useCallback(
     (updateSlugs: boolean) => {
       if (!pendingBulkMove) return
 
       const currentItem = pendingBulkMove.items[pendingBulkMove.currentIndex]
-      executeMove([currentItem.dragId], currentItem.parentId, currentItem.index, currentItem.node, updateSlugs)
 
-      // Find next item that needs confirmation
-      let nextIndex = pendingBulkMove.currentIndex + 1
-      while (nextIndex < pendingBulkMove.items.length) {
-        const item = pendingBulkMove.items[nextIndex]
-        if (item.requiresConfirmation) {
-          setPendingBulkMove({ ...pendingBulkMove, currentIndex: nextIndex })
+      // Folder moves with children + Update URLs require type-to-confirm.
+      // Pause the bulk flow (the bulk modal will hide via its render guard)
+      // and show the gate. The gate's confirm/cancel will resume the bulk
+      // flow at the next item.
+      if (
+        updateSlugs &&
+        currentItem.node.type === 'folder' &&
+        currentItem.affectedCount > 0
+      ) {
+        const expectedSegment = getValidatedSegment(currentItem.node)
+        if (!expectedSegment) {
+          toast.error(
+            `Cannot update URLs: folder "${currentItem.node.name}" has no URL segment`,
+          )
+          // Skip this item entirely — advance bulk to the next
+          advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
           return
         }
-        // Execute non-confirmation items automatically
-        executeMove([item.dragId], item.parentId, item.index, item.node, false)
-        nextIndex++
+        setPendingBulkMoveTypeGate({
+          current: currentItem,
+          expectedSegment,
+          queue: [],
+          resumeBulk: true,
+        })
+        return
       }
 
-      // All done
-      setPendingBulkMove(null)
+      // Existing path: execute and advance
+      executeMove(
+        [currentItem.dragId],
+        currentItem.parentId,
+        currentItem.index,
+        currentItem.node,
+        updateSlugs,
+      )
+      advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
     },
-    [pendingBulkMove, executeMove],
+    [pendingBulkMove, executeMove, advanceBulkMove],
   )
 
   // Confirm all remaining items in bulk move
@@ -462,21 +527,109 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
     (updateSlugs: boolean) => {
       if (!pendingBulkMove) return
 
-      const remainingCount = pendingBulkMove.items.length - pendingBulkMove.currentIndex
+      if (!updateSlugs) {
+        // Keep all URLs — execute everything immediately, existing behavior
+        const remainingCount = pendingBulkMove.items.length - pendingBulkMove.currentIndex
+        for (let i = pendingBulkMove.currentIndex; i < pendingBulkMove.items.length; i++) {
+          const item = pendingBulkMove.items[i]
+          executeMove([item.dragId], item.parentId, item.index, item.node, false)
+        }
+        setPendingBulkMove(null)
+        toast.success(`Moved ${remainingCount} item${remainingCount > 1 ? 's' : ''}`)
+        return
+      }
 
-      // Process all remaining items from current index
+      // Update URLs path: walk remaining items, executing non-folder ones
+      // immediately, collecting folder-with-children ones into a type-to-confirm
+      // queue. The "Update All" path commits to ALL remaining items atomically,
+      // so resumeBulk is false — once the queue is exhausted, we're done.
+      const itemsToGate: BulkMoveItem[] = []
       for (let i = pendingBulkMove.currentIndex; i < pendingBulkMove.items.length; i++) {
         const item = pendingBulkMove.items[i]
-        // Apply updateSlugs to items that need confirmation, false to others
-        const shouldUpdateSlugs = item.requiresConfirmation ? updateSlugs : false
-        executeMove([item.dragId], item.parentId, item.index, item.node, shouldUpdateSlugs)
+        const isGatedFolder =
+          item.requiresConfirmation &&
+          item.node.type === 'folder' &&
+          item.affectedCount > 0
+
+        if (isGatedFolder) {
+          const seg = getValidatedSegment(item.node)
+          if (!seg) {
+            toast.error(
+              `Cannot update URLs: folder "${item.node.name}" has no URL segment — skipping`,
+            )
+            continue
+          }
+          itemsToGate.push(item)
+        } else {
+          const shouldUpdate = item.requiresConfirmation ? true : false
+          executeMove([item.dragId], item.parentId, item.index, item.node, shouldUpdate)
+        }
       }
 
       setPendingBulkMove(null)
-      toast.success(`Moved ${remainingCount} item${remainingCount > 1 ? 's' : ''}`)
+
+      if (itemsToGate.length === 0) return
+
+      const [first, ...rest] = itemsToGate
+      setPendingBulkMoveTypeGate({
+        current: first,
+        expectedSegment: getValidatedSegment(first.node)!, // pre-validated above
+        queue: rest,
+        resumeBulk: false,
+      })
     },
     [pendingBulkMove, executeMove],
   )
+
+  // Confirm the current item in the bulk type-gate
+  const confirmBulkMoveTypeGate = useCallback(() => {
+    if (!pendingBulkMoveTypeGate) return
+
+    const { current, queue, resumeBulk } = pendingBulkMoveTypeGate
+
+    // Execute the current gated move
+    executeMove([current.dragId], current.parentId, current.index, current.node, true)
+
+    // Pop next from gate queue
+    if (queue.length > 0) {
+      const [next, ...rest] = queue
+      const seg = getValidatedSegment(next.node)
+      if (!seg) {
+        // Should be unreachable since we pre-validated, but defensive
+        toast.error(`Cannot update URLs: folder "${next.node.name}" has no URL segment`)
+        setPendingBulkMoveTypeGate(null)
+        if (resumeBulk && pendingBulkMove) {
+          advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
+        }
+        return
+      }
+      setPendingBulkMoveTypeGate({
+        current: next,
+        expectedSegment: seg,
+        queue: rest,
+        resumeBulk,
+      })
+      return
+    }
+
+    // Queue exhausted
+    setPendingBulkMoveTypeGate(null)
+    if (resumeBulk && pendingBulkMove) {
+      advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
+    }
+  }, [pendingBulkMoveTypeGate, pendingBulkMove, executeMove, advanceBulkMove])
+
+  // Cancel the bulk type-gate. Already-executed moves are NOT undone.
+  // If we were resuming the bulk flow, advance past this item (treat cancel
+  // as "skip this folder, leave its URLs alone").
+  const cancelBulkMoveTypeGate = useCallback(() => {
+    if (!pendingBulkMoveTypeGate) return
+    const { resumeBulk } = pendingBulkMoveTypeGate
+    setPendingBulkMoveTypeGate(null)
+    if (resumeBulk && pendingBulkMove) {
+      advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
+    }
+  }, [pendingBulkMoveTypeGate, pendingBulkMove, advanceBulkMove])
 
   // Cancel bulk move operation
   const cancelBulkMove = useCallback(() => {
@@ -1054,8 +1207,8 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
           ]}
         />
 
-        {/* Bulk Move Confirmation Modal */}
-        {pendingBulkMove && (() => {
+        {/* Bulk Move Confirmation Modal — hides when the type-gate is active */}
+        {pendingBulkMove && pendingBulkMoveTypeGate === null && (() => {
           const currentItem = pendingBulkMove.items[pendingBulkMove.currentIndex]
           const confirmCount = pendingBulkMove.items.filter(i => i.requiresConfirmation).length
           const currentConfirmNumber = pendingBulkMove.items.slice(0, pendingBulkMove.currentIndex + 1).filter(i => i.requiresConfirmation).length
@@ -1099,6 +1252,37 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
             />
           )
         })()}
+
+        {/* Bulk Move Type-to-Confirm Modal */}
+        {pendingBulkMoveTypeGate && (
+          <ConfirmationModal
+            isOpen={true}
+            title={
+              pendingBulkMoveTypeGate.queue.length > 0
+                ? `Confirm URL Update (1 of ${pendingBulkMoveTypeGate.queue.length + 1})`
+                : 'Confirm URL Update'
+            }
+            message={`Updating "${pendingBulkMoveTypeGate.current.node.name}" will rewrite URLs for ${pendingBulkMoveTypeGate.current.affectedCount} child page${pendingBulkMoveTypeGate.current.affectedCount === 1 ? '' : 's'}.`}
+            details={
+              pendingBulkMoveTypeGate.queue.length > 0
+                ? `The folder's URL segment is: ${pendingBulkMoveTypeGate.expectedSegment}\n\n${pendingBulkMoveTypeGate.queue.length} more folder${pendingBulkMoveTypeGate.queue.length === 1 ? '' : 's'} will require confirmation after this.`
+                : `The folder's URL segment is: ${pendingBulkMoveTypeGate.expectedSegment}`
+            }
+            onCancel={cancelBulkMoveTypeGate}
+            typeToConfirm={{
+              expectedText: pendingBulkMoveTypeGate.expectedSegment,
+              label: `Type "${pendingBulkMoveTypeGate.expectedSegment}" to confirm:`,
+              placeholder: pendingBulkMoveTypeGate.expectedSegment,
+            }}
+            actions={[
+              {
+                label: 'Confirm and Update URLs',
+                onClick: confirmBulkMoveTypeGate,
+                variant: 'primary',
+              },
+            ]}
+          />
+        )}
 
 {/* Delete Confirmation Modal */}
         <ConfirmationModal
