@@ -146,17 +146,14 @@ async function getExistingSegments(opts: SegmentLookupOptions): Promise<string[]
 
   const segmentField = type === 'folder' ? 'pathSegment' : 'pageSegment'
 
-  const where: Record<string, unknown> = parentId
+  const folderClause = parentId
     ? { folder: { equals: parentId } }
     : { folder: { exists: false } }
 
-  if (excludeId !== undefined) {
-    where.and = [
-      parentId ? { folder: { equals: parentId } } : { folder: { exists: false } },
-      { id: { not_equals: excludeId } },
-    ]
-    delete where.folder
-  }
+  const where =
+    excludeId !== undefined
+      ? { and: [folderClause, { id: { not_equals: excludeId } }] }
+      : folderClause
 
   const { docs } = await payload.find({
     collection: targetCollection as CollectionSlug,
@@ -222,6 +219,12 @@ export async function findAvailableSegment(
  * Counts all pages whose slugs would be affected if this folder's pathSegment changed.
  * Includes pages in nested subfolders. One recursive walk + one query per page collection.
  * Used by the folder-impact endpoint and the EditUrlModal cascade gate.
+ *
+ * IMPORTANT: this function does NOT swallow errors. If any per-collection query
+ * fails, the error propagates. Silently undercounting would mislead the user
+ * into approving a much larger cascade than they realize. The endpoint that
+ * wraps this should return a 500 on failure, and the modal should refuse to
+ * proceed when the count is unknown.
  */
 export async function countDescendantPages(opts: {
   payload: Payload
@@ -236,22 +239,15 @@ export async function countDescendantPages(opts: {
 
   let total = 0
   for (const collectionSlug of collections) {
-    try {
-      const { totalDocs } = await payload.find({
-        collection: collectionSlug as CollectionSlug,
-        where: {
-          folder: { in: allFolderIds },
-        },
-        limit: 0,
-        depth: 0,
-      })
-      total += totalDocs
-    } catch (error) {
-      console.error(
-        `[segments] Error counting pages in "${collectionSlug}" for folder ${folderId}:`,
-        error,
-      )
-    }
+    const { totalDocs } = await payload.find({
+      collection: collectionSlug as CollectionSlug,
+      where: {
+        folder: { in: allFolderIds },
+      },
+      limit: 0,
+      depth: 0,
+    })
+    total += totalDocs
   }
 
   return total
@@ -1122,6 +1118,14 @@ interface TypeToConfirmConfig {
   placeholder?: string
 }
 
+// NOTE: when typeToConfirm is set AND actions is set, ALL action buttons are
+// gated (disabled until the user's input matches expectedText). The Cancel
+// button rendered above the actions array is never gated. Today this works
+// because the only consumer (folder-move type-to-confirm) passes a single
+// "Confirm and Update URLs" action. If a future caller adds a non-gated
+// secondary action, this gating model will need a per-action `gated?: boolean`
+// flag.
+
 interface ConfirmationModalProps {
   isOpen: boolean
   title: string
@@ -1652,6 +1656,13 @@ Add this new effect after the initialize-segment effect:
 
 ```ts
 // Debounced live availability check (300ms)
+//
+// Race-condition guard: we use a closed-over `cancelled` flag rather than
+// comparing segment values inside the callback, because the callback's
+// closure captures `segment` at effect-run time — comparing it to itself is
+// always trivially true and provides no race protection. The cleanup
+// function sets cancelled=true so any in-flight fetch from a stale effect
+// can short-circuit before calling setAvailability.
 useEffect(() => {
   if (!isOpen || !node) return
 
@@ -1665,6 +1676,7 @@ useEffect(() => {
 
   setAvailability('checking')
 
+  let cancelled = false
   const timeoutId = setTimeout(async () => {
     try {
       const params = new URLSearchParams({
@@ -1679,18 +1691,21 @@ useEffect(() => {
         available: boolean
       }
 
-      // Guard against race conditions: only commit if the segment hasn't changed
-      // since this request was fired
-      if (slugify(segment) === slugifiedSegment) {
+      if (!cancelled) {
         setAvailability(result.available ? 'available' : 'taken')
       }
     } catch (err) {
-      console.error('Availability check failed:', err)
-      setAvailability('idle')
+      if (!cancelled) {
+        console.error('Availability check failed:', err)
+        setAvailability('idle')
+      }
     }
   }, 300)
 
-  return () => clearTimeout(timeoutId)
+  return () => {
+    cancelled = true
+    clearTimeout(timeoutId)
+  }
 }, [isOpen, node, segment, originalSegment, parentId, apiCall])
 ```
 
@@ -1785,12 +1800,19 @@ In `src/components/PageTreeClient.tsx`, find the `<EditUrlModal />` JSX (around 
   isOpen={editUrlState !== null}
   node={editUrlState?.node ?? null}
   folderPath={editUrlState?.folderPath ?? ''}
-  parentId={editUrlState?.node?.folderId ?? null}
+  parentId={stripIdPrefix(editUrlState?.node?.folderId ?? null)}
   apiCall={apiCall}
   onSave={handleEditUrlSave}
   onCancel={closeEditUrl}
 />
 ```
+
+CRITICAL: `node.folderId` from `buildTree.ts:33,71` is the PREFIXED tree ID
+(e.g., `folder-42`), NOT the raw database ID. Passing it unchanged would
+break every collision check because the server query
+`folder: { equals: 'folder-42' }` matches zero records, silently returning
+`available: true` for everything. The `stripIdPrefix` helper already exists
+in `PageTreeClient.tsx:106-109` and converts `'folder-42'` → `'42'`.
 
 - [ ] **Step 7: Build to verify**
 
@@ -1811,12 +1833,24 @@ git commit -m "feat(edit-url): live debounced availability check in modal"
 **Files:**
 - Modify: `src/components/EditUrlModal.tsx`
 
-- [ ] **Step 1: Add child page count state**
+- [ ] **Step 1: Add cascade impact state with discriminated union**
+
+We use a discriminated union (loading / loaded / error) instead of `number | null`
+because `null` is ambiguous — it can't distinguish "still fetching" from
+"fetch failed" from "not applicable". The error state is critical: if the
+count fetch fails, the modal MUST refuse to enter the type-to-confirm flow
+to prevent the user approving an unknown-size cascade.
 
 Inside the `EditUrlModal` component body, add:
 
 ```ts
-const [childPageCount, setChildPageCount] = useState<number | null>(null)
+type CascadeImpact =
+  | { state: 'idle' }     // not a folder, or modal closed
+  | { state: 'loading' }
+  | { state: 'loaded'; count: number }
+  | { state: 'error'; message: string }
+
+const [cascadeImpact, setCascadeImpact] = useState<CascadeImpact>({ state: 'idle' })
 ```
 
 - [ ] **Step 2: Add an effect to fetch the cascade impact when modal opens for a folder**
@@ -1824,15 +1858,19 @@ const [childPageCount, setChildPageCount] = useState<number | null>(null)
 After the initialize-segment effect, add:
 
 ```ts
-// Fetch cascade impact for folders
+// Fetch cascade impact for folders. Errors are surfaced as an explicit
+// 'error' state — they MUST NOT degrade silently to 'no children', because
+// a missed count would let the user approve a cascade of unknown size.
 useEffect(() => {
   if (!isOpen || !node || node.type !== 'folder') {
-    setChildPageCount(null)
+    setCascadeImpact({ state: 'idle' })
     return
   }
 
   const folderId = node.rawId || node.id.replace(/^folder-/, '')
   let cancelled = false
+
+  setCascadeImpact({ state: 'loading' })
 
   ;(async () => {
     try {
@@ -1840,12 +1878,15 @@ useEffect(() => {
         childPageCount: number
       }
       if (!cancelled) {
-        setChildPageCount(result.childPageCount)
+        setCascadeImpact({ state: 'loaded', count: result.childPageCount })
       }
     } catch (err) {
-      console.error('Folder impact fetch failed:', err)
       if (!cancelled) {
-        setChildPageCount(null)
+        console.error('Folder impact fetch failed:', err)
+        setCascadeImpact({
+          state: 'error',
+          message: err instanceof Error ? err.message : 'Failed to fetch cascade impact',
+        })
       }
     }
   })()
@@ -1856,12 +1897,13 @@ useEffect(() => {
 }, [isOpen, node, apiCall])
 ```
 
-- [ ] **Step 3: Render the warning row below the description**
+- [ ] **Step 3: Render the warning row (and error row) below the description**
 
-Find the existing description paragraph (around lines 159-170). After it and before the input block, add:
+Find the existing description paragraph (around lines 159-170). After it and
+before the input block, add:
 
 ```tsx
-{isFolder && childPageCount !== null && childPageCount > 0 && (
+{isFolder && cascadeImpact.state === 'loaded' && cascadeImpact.count > 0 && (
   <div
     style={{
       padding: '10px 12px',
@@ -1873,8 +1915,24 @@ Find the existing description paragraph (around lines 159-170). After it and bef
       color: 'var(--theme-warning-800, #92400e)',
     }}
   >
-    ⚠ This will update URLs for {childPageCount} child page
-    {childPageCount === 1 ? '' : 's'}.
+    Warning: this will update URLs for {cascadeImpact.count} child page
+    {cascadeImpact.count === 1 ? '' : 's'}.
+  </div>
+)}
+{isFolder && cascadeImpact.state === 'error' && (
+  <div
+    style={{
+      padding: '10px 12px',
+      backgroundColor: 'var(--theme-error-50, #fef2f2)',
+      border: '1px solid var(--theme-error-200, #fecaca)',
+      borderRadius: '4px',
+      marginBottom: '16px',
+      fontSize: '13px',
+      color: 'var(--theme-error-700, #b91c1c)',
+    }}
+  >
+    Failed to fetch cascade impact: {cascadeImpact.message}. Save is disabled
+    until this can be retrieved.
   </div>
 )}
 ```
@@ -1941,8 +1999,15 @@ Add these computed values just before the return statement (around line 113, nea
 
 ```ts
 const slugifiedSegmentValue = slugify(segment)
-const requiresTypeToConfirm = isFolder && childPageCount !== null && childPageCount > 0
-const typeToConfirmSatisfied = !requiresTypeToConfirm || confirmInput === slugifiedSegmentValue
+const requiresTypeToConfirm =
+  isFolder && cascadeImpact.state === 'loaded' && cascadeImpact.count > 0
+const typeToConfirmSatisfied =
+  !requiresTypeToConfirm || confirmInput === slugifiedSegmentValue
+// If we're editing a folder but the cascade fetch is in flight or failed,
+// we MUST NOT allow saving — proceeding would let the user approve a
+// cascade of unknown size.
+const cascadeFetchBlocking =
+  isFolder && (cascadeImpact.state === 'loading' || cascadeImpact.state === 'error')
 ```
 
 - [ ] **Step 4: Render the type-to-confirm input below the cascade warning**
@@ -1997,49 +2062,46 @@ Note: this block should appear AFTER the cascade warning (Task 14) and AFTER the
 6. Type-to-confirm input (this task) — placed AFTER preview so the user sees the new URL before re-typing it
 7. Buttons
 
-- [ ] **Step 5: Add the type-to-confirm gate to the Save button disable logic**
+- [ ] **Step 5: Add the type-to-confirm gate AND cascade-fetch block to the Save button disable logic**
 
-Update the Save button's `disabled` and `cursor`/`opacity` logic to include `!typeToConfirmSatisfied`:
+Update the Save button's `disabled` and `cursor`/`opacity` logic to include
+both `!typeToConfirmSatisfied` and `cascadeFetchBlocking`:
 
 ```tsx
-<button
-  onClick={handleSave}
-  disabled={
+{(() => {
+  const isDisabled =
     saving ||
     !slugify(segment) ||
     availability === 'taken' ||
     availability === 'checking' ||
-    !typeToConfirmSatisfied
-  }
-  style={{
-    padding: '8px 16px',
-    border: 'none',
-    borderRadius: '4px',
-    backgroundColor: 'var(--theme-success-500, #22c55e)',
-    color: 'white',
-    fontSize: '14px',
-    fontWeight: 500,
-    cursor:
-      saving ||
-      !slugify(segment) ||
-      availability === 'taken' ||
-      availability === 'checking' ||
-      !typeToConfirmSatisfied
-        ? 'not-allowed'
-        : 'pointer',
-    opacity:
-      saving ||
-      !slugify(segment) ||
-      availability === 'taken' ||
-      availability === 'checking' ||
-      !typeToConfirmSatisfied
-        ? 0.6
-        : 1,
-  }}
->
-  {saving ? 'Saving...' : 'Save'}
-</button>
+    !typeToConfirmSatisfied ||
+    cascadeFetchBlocking
+  return (
+    <button
+      onClick={handleSave}
+      disabled={isDisabled}
+      style={{
+        padding: '8px 16px',
+        border: 'none',
+        borderRadius: '4px',
+        backgroundColor: 'var(--theme-success-500, #22c55e)',
+        color: 'white',
+        fontSize: '14px',
+        fontWeight: 500,
+        cursor: isDisabled ? 'not-allowed' : 'pointer',
+        opacity: isDisabled ? 0.6 : 1,
+      }}
+    >
+      {saving ? 'Saving...' : 'Save'}
+    </button>
+  )
+})()}
 ```
+
+The IIFE wrapper extracts the `isDisabled` calculation so it isn't repeated
+three times. The previous version of this code would've duplicated the
+check inside `disabled`, `cursor`, and `opacity` props — error-prone when
+adding new conditions like `cascadeFetchBlocking`.
 
 - [ ] **Step 6: Build to verify**
 
@@ -2095,8 +2157,19 @@ const confirmMove = useCallback(
       pendingMove.node.type === 'folder' &&
       pendingMove.affectedCount > 0
     ) {
-      // Look up the folder's pathSegment to use as the type-to-confirm target
-      const expectedSegment = pendingMove.node.pathSegment || ''
+      // Look up the folder's pathSegment to use as the type-to-confirm target.
+      // SAFETY: if pathSegment is missing or empty, the type-to-confirm gate
+      // becomes "type empty string to confirm" which any input satisfies —
+      // defeating the entire safety mechanism. Refuse to proceed and surface
+      // an error instead.
+      const expectedSegment = pendingMove.node.pathSegment
+      if (!expectedSegment) {
+        toast.error(
+          `Cannot update URLs: folder "${pendingMove.node.name}" has no URL segment`,
+        )
+        setPendingMove(null)
+        return
+      }
       setPendingMoveConfirmation({ pendingMove, expectedSegment })
       setPendingMove(null)
       return
@@ -2192,26 +2265,97 @@ git commit -m "feat(move): type-to-confirm for single folder-move Update URLs pa
 **Files:**
 - Modify: `src/components/PageTreeClient.tsx`
 
-- [ ] **Step 1: Add bulk move type-to-confirm queue state**
+**Why this is more complex than Task 16:** the bulk move flow has its own
+modal state machine (`pendingBulkMove` with a `currentIndex` that walks
+through items). When the user clicks "Update URL" or "Update All URLs" on
+folder-with-children items, we need to gate them WITHOUT letting the bulk
+modal and the type-to-confirm modal render simultaneously, AND without
+losing the user's progress through the bulk queue.
 
-Add a new interface and state. The bulk move flow may have multiple folders requiring confirmation, so we need a queue:
+**State model:** introduce a single `pendingBulkMoveTypeGate` state. When set,
+the bulk modal hides itself and the type-to-confirm modal shows. The gate
+holds:
+1. The current item being confirmed
+2. A queue of *other* folders awaiting confirmation (in case the user clicked
+   "Update All" and multiple folders need gating)
+3. Whether to resume the bulk flow after the gate finishes (true for the
+   per-item path from `confirmBulkMoveItem`, false for the "Update All" path
+   from `confirmBulkMoveAll` since that path commits to all remaining items
+   atomically)
+
+- [ ] **Step 1: Add bulk move type-gate state**
+
+Near the existing `BulkMoveItem` interface, add:
 
 ```ts
-interface PendingBulkMoveConfirmation {
-  /** Items still needing type-to-confirm. We process the queue one at a time. */
+interface PendingBulkMoveTypeGate {
+  /** The folder currently being type-to-confirmed */
+  current: BulkMoveItem
+  /** The pre-validated segment the user must type */
+  expectedSegment: string
+  /** Other folders waiting for type-to-confirm after the current one */
   queue: BulkMoveItem[]
-  /** Index of the current item in the queue */
-  currentIndex: number
+  /** Whether to resume the bulk flow after the gate completes (or is cancelled) */
+  resumeBulk: boolean
 }
 ```
 
-And in state declarations:
+In the state declarations (around line 192):
 
 ```ts
-const [pendingBulkMoveConfirmation, setPendingBulkMoveConfirmation] = useState<PendingBulkMoveConfirmation | null>(null)
+const [pendingBulkMoveTypeGate, setPendingBulkMoveTypeGate] =
+  useState<PendingBulkMoveTypeGate | null>(null)
 ```
 
-- [ ] **Step 2: Update `confirmBulkMoveItem` to gate folder moves with children**
+- [ ] **Step 2: Extract a `getValidatedSegment` helper**
+
+Add this near the top of the component (or as a top-level helper function):
+
+```ts
+// Returns the folder's pathSegment if non-empty, or null if missing/empty.
+// A null result MUST cause the caller to refuse the type-to-confirm flow,
+// because an empty expected text trivially satisfies the gate (`'' === ''`)
+// and defeats the entire safety mechanism.
+function getValidatedSegment(node: TreeNodeType): string | null {
+  return node.pathSegment && node.pathSegment.length > 0 ? node.pathSegment : null
+}
+```
+
+- [ ] **Step 3: Extract an `advanceBulkMove` helper**
+
+The existing `confirmBulkMoveItem` has inline logic to advance to the next
+bulk item, auto-executing items that don't require confirmation along the
+way. We need to call this from two places now (the existing path AND the
+type-gate confirm/cancel paths), so extract it as a helper inside the
+component:
+
+```ts
+// Advances the bulk move past `fromIndex`, auto-executing items that don't
+// require confirmation, and stopping at the next item that does (or clearing
+// pendingBulkMove if there are none left). Returns true if the bulk modal
+// should remain open, false if it was cleared.
+const advanceBulkMove = useCallback(
+  (bulk: PendingBulkMove, fromIndex: number): boolean => {
+    let nextIndex = fromIndex
+    while (nextIndex < bulk.items.length) {
+      if (bulk.items[nextIndex].requiresConfirmation) break
+      const item = bulk.items[nextIndex]
+      executeMove([item.dragId], item.parentId, item.index, item.node, false)
+      nextIndex++
+    }
+
+    if (nextIndex >= bulk.items.length) {
+      setPendingBulkMove(null)
+      return false
+    }
+    setPendingBulkMove({ ...bulk, currentIndex: nextIndex })
+    return true
+  },
+  [executeMove],
+)
+```
+
+- [ ] **Step 4: Update `confirmBulkMoveItem` to use the type-gate**
 
 Replace the existing `confirmBulkMoveItem` callback (around lines 396-420) with:
 
@@ -2223,21 +2367,34 @@ const confirmBulkMoveItem = useCallback(
 
     const currentItem = pendingBulkMove.items[pendingBulkMove.currentIndex]
 
-    // Folder moves with children + Update URLs require type-to-confirm
+    // Folder moves with children + Update URLs require type-to-confirm.
+    // Pause the bulk flow (the bulk modal will hide via its render guard)
+    // and show the gate. The gate's confirm/cancel will resume the bulk
+    // flow at the next item.
     if (
       updateSlugs &&
       currentItem.node.type === 'folder' &&
       currentItem.affectedCount > 0
     ) {
-      setPendingBulkMoveConfirmation({
-        queue: [currentItem],
-        currentIndex: 0,
+      const expectedSegment = getValidatedSegment(currentItem.node)
+      if (!expectedSegment) {
+        toast.error(
+          `Cannot update URLs: folder "${currentItem.node.name}" has no URL segment`,
+        )
+        // Skip this item entirely — advance bulk to the next
+        advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
+        return
+      }
+      setPendingBulkMoveTypeGate({
+        current: currentItem,
+        expectedSegment,
+        queue: [],
+        resumeBulk: true,
       })
-      // Don't clear pendingBulkMove yet — we'll resume after confirmation
       return
     }
 
-    // Proceed with the move directly
+    // Existing path: execute and advance
     executeMove(
       [currentItem.dragId],
       currentItem.parentId,
@@ -2245,28 +2402,13 @@ const confirmBulkMoveItem = useCallback(
       currentItem.node,
       updateSlugs,
     )
-
-    // Find next item that needs confirmation
-    let nextIndex = pendingBulkMove.currentIndex + 1
-    while (nextIndex < pendingBulkMove.items.length) {
-      if (pendingBulkMove.items[nextIndex].requiresConfirmation) break
-      // Auto-execute items that don't require confirmation
-      const item = pendingBulkMove.items[nextIndex]
-      executeMove([item.dragId], item.parentId, item.index, item.node, false)
-      nextIndex++
-    }
-
-    if (nextIndex >= pendingBulkMove.items.length) {
-      setPendingBulkMove(null)
-    } else {
-      setPendingBulkMove({ ...pendingBulkMove, currentIndex: nextIndex })
-    }
+    advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
   },
-  [pendingBulkMove, executeMove],
+  [pendingBulkMove, executeMove, advanceBulkMove],
 )
 ```
 
-- [ ] **Step 3: Update `confirmBulkMoveAll` to gate folder moves with children**
+- [ ] **Step 5: Update `confirmBulkMoveAll` to use the type-gate**
 
 Replace the existing `confirmBulkMoveAll` callback (around lines 422-441) with:
 
@@ -2276,123 +2418,178 @@ const confirmBulkMoveAll = useCallback(
   (updateSlugs: boolean) => {
     if (!pendingBulkMove) return
 
-    if (updateSlugs) {
-      // Find all remaining folders with children — they all need type-to-confirm
-      const foldersNeedingConfirm: BulkMoveItem[] = []
+    if (!updateSlugs) {
+      // Keep all URLs — execute everything immediately, existing behavior
       for (let i = pendingBulkMove.currentIndex; i < pendingBulkMove.items.length; i++) {
         const item = pendingBulkMove.items[i]
-        if (
-          item.requiresConfirmation &&
-          item.node.type === 'folder' &&
-          item.affectedCount > 0
-        ) {
-          foldersNeedingConfirm.push(item)
-        }
+        executeMove([item.dragId], item.parentId, item.index, item.node, false)
       }
-
-      if (foldersNeedingConfirm.length > 0) {
-        // Execute non-folder items immediately
-        for (let i = pendingBulkMove.currentIndex; i < pendingBulkMove.items.length; i++) {
-          const item = pendingBulkMove.items[i]
-          if (
-            item.node.type === 'folder' &&
-            item.affectedCount > 0 &&
-            item.requiresConfirmation
-          ) {
-            // Skip — will be handled by the type-to-confirm queue
-            continue
-          }
-          const shouldUpdate = item.requiresConfirmation ? true : false
-          executeMove([item.dragId], item.parentId, item.index, item.node, shouldUpdate)
-        }
-        setPendingBulkMove(null)
-        setPendingBulkMoveConfirmation({ queue: foldersNeedingConfirm, currentIndex: 0 })
-        return
-      }
+      setPendingBulkMove(null)
+      return
     }
 
-    // No folders needing confirmation — proceed with all remaining items
+    // Update URLs path: walk remaining items, executing non-folder ones
+    // immediately, collecting folder-with-children ones into a type-to-confirm
+    // queue. The "Update All" path commits to ALL remaining items atomically,
+    // so resumeBulk is false — once the queue is exhausted, we're done.
+    const itemsToGate: BulkMoveItem[] = []
     for (let i = pendingBulkMove.currentIndex; i < pendingBulkMove.items.length; i++) {
       const item = pendingBulkMove.items[i]
-      const shouldUpdate = item.requiresConfirmation ? updateSlugs : false
-      executeMove([item.dragId], item.parentId, item.index, item.node, shouldUpdate)
+      const isGatedFolder =
+        item.requiresConfirmation &&
+        item.node.type === 'folder' &&
+        item.affectedCount > 0
+
+      if (isGatedFolder) {
+        const seg = getValidatedSegment(item.node)
+        if (!seg) {
+          toast.error(
+            `Cannot update URLs: folder "${item.node.name}" has no URL segment — skipping`,
+          )
+          continue
+        }
+        itemsToGate.push(item)
+      } else {
+        const shouldUpdate = item.requiresConfirmation ? true : false
+        executeMove([item.dragId], item.parentId, item.index, item.node, shouldUpdate)
+      }
     }
 
     setPendingBulkMove(null)
+
+    if (itemsToGate.length === 0) return
+
+    const [first, ...rest] = itemsToGate
+    setPendingBulkMoveTypeGate({
+      current: first,
+      expectedSegment: getValidatedSegment(first.node)!, // pre-validated above
+      queue: rest,
+      resumeBulk: false,
+    })
   },
   [pendingBulkMove, executeMove],
 )
 ```
 
-- [ ] **Step 4: Add callbacks for advancing through the bulk type-to-confirm queue**
+- [ ] **Step 6: Add callbacks for advancing through the bulk type-gate**
 
 Add these callbacks immediately after `confirmBulkMoveAll`:
 
 ```ts
-// Confirm one item in the bulk type-to-confirm queue
+// Confirm the current item in the bulk type-gate
 const confirmBulkMoveTypeGate = useCallback(() => {
-  if (!pendingBulkMoveConfirmation) return
-  const item = pendingBulkMoveConfirmation.queue[pendingBulkMoveConfirmation.currentIndex]
-  executeMove([item.dragId], item.parentId, item.index, item.node, true)
+  if (!pendingBulkMoveTypeGate) return
 
-  const nextIndex = pendingBulkMoveConfirmation.currentIndex + 1
-  if (nextIndex >= pendingBulkMoveConfirmation.queue.length) {
-    setPendingBulkMoveConfirmation(null)
-  } else {
-    setPendingBulkMoveConfirmation({
-      ...pendingBulkMoveConfirmation,
-      currentIndex: nextIndex,
+  const { current, queue, resumeBulk } = pendingBulkMoveTypeGate
+
+  // Execute the current gated move
+  executeMove([current.dragId], current.parentId, current.index, current.node, true)
+
+  // Pop next from gate queue
+  if (queue.length > 0) {
+    const [next, ...rest] = queue
+    const seg = getValidatedSegment(next.node)
+    if (!seg) {
+      // Should be unreachable since we pre-validated, but defensive
+      toast.error(`Cannot update URLs: folder "${next.node.name}" has no URL segment`)
+      setPendingBulkMoveTypeGate(null)
+      if (resumeBulk && pendingBulkMove) {
+        advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
+      }
+      return
+    }
+    setPendingBulkMoveTypeGate({
+      current: next,
+      expectedSegment: seg,
+      queue: rest,
+      resumeBulk,
     })
+    return
   }
-}, [pendingBulkMoveConfirmation, executeMove])
 
-// Cancel the bulk type-to-confirm queue (does NOT undo already-executed moves)
+  // Queue exhausted
+  setPendingBulkMoveTypeGate(null)
+  if (resumeBulk && pendingBulkMove) {
+    advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
+  }
+}, [pendingBulkMoveTypeGate, pendingBulkMove, executeMove, advanceBulkMove])
+
+// Cancel the bulk type-gate. Already-executed moves are NOT undone (cannot be).
+// If we were resuming the bulk flow, advance past this item (treat cancel as
+// "skip this folder, leave its URLs alone").
 const cancelBulkMoveTypeGate = useCallback(() => {
-  setPendingBulkMoveConfirmation(null)
-}, [])
+  if (!pendingBulkMoveTypeGate) return
+  const { resumeBulk } = pendingBulkMoveTypeGate
+  setPendingBulkMoveTypeGate(null)
+  if (resumeBulk && pendingBulkMove) {
+    advanceBulkMove(pendingBulkMove, pendingBulkMove.currentIndex + 1)
+  }
+}, [pendingBulkMoveTypeGate, pendingBulkMove, advanceBulkMove])
 ```
 
-- [ ] **Step 5: Render the bulk move type-to-confirm modal**
+- [ ] **Step 7: Hide the bulk modal while the type-gate is active**
+
+Find the existing bulk move modal in the JSX (around lines 1027-1070). Update
+its `isOpen` condition so it hides when the type-gate is shown. The current
+markup wraps the modal in `{pendingBulkMove && (() => { ... })()}` — change
+the guard:
+
+```tsx
+{pendingBulkMove && pendingBulkMoveTypeGate === null && (() => {
+  const currentItem = pendingBulkMove.items[pendingBulkMove.currentIndex]
+  // ... rest of existing markup ...
+})()}
+```
+
+Without this change, both modals would render simultaneously and stack
+backdrops on top of each other.
+
+- [ ] **Step 8: Render the bulk type-gate modal**
 
 In the JSX, after the single-move type-to-confirm modal from Task 16, add:
 
 ```tsx
 {/* Bulk Move Type-to-Confirm Modal */}
-{pendingBulkMoveConfirmation && (() => {
-  const item = pendingBulkMoveConfirmation.queue[pendingBulkMoveConfirmation.currentIndex]
-  const expectedSegment = item.node.pathSegment || ''
-  const remaining = pendingBulkMoveConfirmation.queue.length - pendingBulkMoveConfirmation.currentIndex
-
-  return (
-    <ConfirmationModal
-      isOpen={true}
-      title={`Confirm URL Update (${pendingBulkMoveConfirmation.currentIndex + 1} of ${pendingBulkMoveConfirmation.queue.length})`}
-      message={`Updating "${item.node.name}" will rewrite URLs for ${item.affectedCount} child page${item.affectedCount === 1 ? '' : 's'}.`}
-      details={`The folder's URL segment is: ${expectedSegment}${remaining > 1 ? `\n\n${remaining - 1} more folder${remaining - 1 === 1 ? '' : 's'} will require confirmation after this.` : ''}`}
-      onCancel={cancelBulkMoveTypeGate}
-      typeToConfirm={{
-        expectedText: expectedSegment,
-        label: `Type "${expectedSegment}" to confirm:`,
-        placeholder: expectedSegment,
-      }}
-      actions={[
-        {
-          label: 'Confirm and Update URLs',
-          onClick: confirmBulkMoveTypeGate,
-          variant: 'primary',
-        },
-      ]}
-    />
-  )
-})()}
+{pendingBulkMoveTypeGate && (
+  <ConfirmationModal
+    isOpen={true}
+    title={
+      pendingBulkMoveTypeGate.queue.length > 0
+        ? `Confirm URL Update (1 of ${pendingBulkMoveTypeGate.queue.length + 1})`
+        : 'Confirm URL Update'
+    }
+    message={`Updating "${pendingBulkMoveTypeGate.current.node.name}" will rewrite URLs for ${pendingBulkMoveTypeGate.current.affectedCount} child page${pendingBulkMoveTypeGate.current.affectedCount === 1 ? '' : 's'}.`}
+    details={
+      pendingBulkMoveTypeGate.queue.length > 0
+        ? `The folder's URL segment is: ${pendingBulkMoveTypeGate.expectedSegment}\n\n${pendingBulkMoveTypeGate.queue.length} more folder${pendingBulkMoveTypeGate.queue.length === 1 ? '' : 's'} will require confirmation after this.`
+        : `The folder's URL segment is: ${pendingBulkMoveTypeGate.expectedSegment}`
+    }
+    onCancel={cancelBulkMoveTypeGate}
+    typeToConfirm={{
+      expectedText: pendingBulkMoveTypeGate.expectedSegment,
+      label: `Type "${pendingBulkMoveTypeGate.expectedSegment}" to confirm:`,
+      placeholder: pendingBulkMoveTypeGate.expectedSegment,
+    }}
+    actions={[
+      {
+        label: 'Confirm and Update URLs',
+        onClick: confirmBulkMoveTypeGate,
+        variant: 'primary',
+      },
+    ]}
+  />
+)}
 ```
 
-- [ ] **Step 6: Build to verify**
+- [ ] **Step 9: Build to verify**
 
 Run: `pnpm build`
-Expected: Build succeeds.
+Expected: Build succeeds with no TypeScript errors. Pay particular attention
+to any errors about `PendingBulkMove` not being a defined type — if so,
+export the existing `PendingBulkMove` interface from its current file-local
+declaration.
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 10: Commit**
 
 ```bash
 git add src/components/PageTreeClient.tsx
@@ -2404,52 +2601,120 @@ git commit -m "feat(move): type-to-confirm for bulk folder-move Update URLs path
 ### Task 18: Surface "collisionResolved" in create toast
 
 **Files:**
-- Modify: `src/components/PageTreeClient.tsx` (the `executeCreate` callback or wherever create responses are handled)
+- Modify: `src/components/PageTreeClient.tsx` — TWO call sites:
+  - `case 'newPage':` inside `handleContextAction` (around lines 603-627)
+  - `case 'newFolder':` inside `handleContextAction` (around lines 629-652)
 
-- [ ] **Step 1: Find where create responses are handled**
+There is no `executeCreate` helper — both create call sites are inline in
+the `handleContextAction` switch. Both make the API call, check
+`result.success`, show a toast, then `window.location.reload()`. We need to
+update BOTH places.
 
-Use Grep on `src/components/PageTreeClient.tsx` for the pattern `/page-tree/create` to find the call site. Read 30 lines of context around each match to identify the response-handling block.
+- [ ] **Step 1: Verify the current call site shapes**
 
-- [ ] **Step 2: Update the success toast to include the resolved URL when applicable**
+Use Grep on `/page-tree/create` over `src/components/PageTreeClient.tsx` to
+locate both branches. They should look approximately like (annotate any
+differences you find):
 
-Inside the create-success branch, after the existing `toast.success(...)` call, add a check for `collisionResolved`:
+```ts
+case 'newPage': {
+  const newName = prompt('New page name:')
+  if (!newName) return
+  try {
+    const result = await apiCall('/page-tree/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'page',
+        name: newName,
+        parentId: node.type === 'folder' ? rawId : node.folderId,
+        collection: node.collection || selectedCollection,
+      }),
+    })
+    if (result.success) {
+      toast.success('Page created')
+      window.location.reload()
+    }
+  } catch (error) {
+    // ...
+  }
+  break
+}
+```
+
+If the actual code differs significantly, adapt the integration in step 2
+accordingly.
+
+- [ ] **Step 2: Update `case 'newPage'` to surface collisionResolved**
+
+Replace the `result.success` branch with:
 
 ```ts
 const result = (await apiCall('/page-tree/create', {
   method: 'POST',
-  body: JSON.stringify({ /* ... existing payload ... */ }),
+  body: JSON.stringify({
+    type: 'page',
+    name: newName,
+    parentId: node.type === 'folder' ? rawId : node.folderId,
+    collection: node.collection || selectedCollection,
+  }),
 })) as {
   success: boolean
-  type: 'page' | 'folder'
-  pageSegment?: string
-  pathSegment?: string
+  type?: 'page' | 'folder'
   title?: string
-  name?: string
+  pageSegment?: string
   collisionResolved?: boolean
 }
 
 if (result.success) {
-  if (result.collisionResolved) {
-    const resolvedSegment = result.type === 'page' ? result.pageSegment : result.pathSegment
-    const displayName = result.type === 'page' ? result.title : result.name
+  if (result.collisionResolved && result.pageSegment) {
     toast.success(
-      `Created "${displayName}" with URL segment "${resolvedSegment}" (the original was already in use)`,
+      `Created "${result.title ?? newName}" with URL segment "${result.pageSegment}" (the original was already in use)`,
     )
   } else {
-    toast.success(`Created ${result.type === 'page' ? 'page' : 'folder'}`)
+    toast.success(`Created "${result.title ?? newName}"`)
   }
-  // ... existing post-create logic (refresh, etc.)
+  window.location.reload()
 }
 ```
 
-The exact integration depends on the current call site shape. The key behavior is: if `collisionResolved` is true, the toast surfaces the resolved segment so the user knows the URL changed.
+- [ ] **Step 3: Update `case 'newFolder'` to surface collisionResolved**
 
-- [ ] **Step 3: Build to verify**
+Replace the `result.success` branch with:
+
+```ts
+const result = (await apiCall('/page-tree/create', {
+  method: 'POST',
+  body: JSON.stringify({
+    type: 'folder',
+    name: newName,
+    parentId: node.type === 'folder' ? rawId : node.folderId,
+  }),
+})) as {
+  success: boolean
+  type?: 'page' | 'folder'
+  name?: string
+  pathSegment?: string
+  collisionResolved?: boolean
+}
+
+if (result.success) {
+  if (result.collisionResolved && result.pathSegment) {
+    toast.success(
+      `Created folder "${result.name ?? newName}" with URL segment "${result.pathSegment}" (the original was already in use)`,
+    )
+  } else {
+    toast.success(`Created folder "${result.name ?? newName}"`)
+  }
+  window.location.reload()
+}
+```
+
+- [ ] **Step 4: Build to verify**
 
 Run: `pnpm build`
 Expected: Build succeeds.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
 git add src/components/PageTreeClient.tsx
