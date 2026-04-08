@@ -1019,36 +1019,73 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
       }
 
       const { type, id, segment, collection } = body
-      const slugifiedSegment = slugify(segment)
+      const slugifiedSegment = slugifyName(segment)
+
+      // Look up the source record so we can determine its parent for sibling
+      // collision lookups
+      const sourceCollection = type === 'folder' ? folderSlug : collection
+      if (!sourceCollection) {
+        return Response.json(
+          { error: 'Collection is required for page type' },
+          { status: 400 },
+        )
+      }
+      if (type === 'page' && collection && !collections.includes(collection)) {
+        return Response.json(
+          { error: `Collection "${collection}" is not configured for page-tree` },
+          { status: 400 },
+        )
+      }
+
+      const record = await req.payload.findByID({
+        collection: sourceCollection as CollectionSlug,
+        id,
+        depth: 0,
+        req,
+      })
+      const rawParent = (record as { folder?: unknown }).folder
+      const parentId = rawParent
+        ? typeof rawParent === 'object' && rawParent !== null
+          ? String((rawParent as { id: string | number }).id)
+          : String(rawParent)
+        : null
+
+      // Server-side guarantee — client should already have caught this via
+      // the live availability check, but we don't trust the client.
+      const available = await isSegmentAvailable({
+        payload: req.payload,
+        parentId,
+        type,
+        segment: slugifiedSegment,
+        excludeId: id,
+        collection,
+        collections,
+        folderSlug,
+      })
+
+      if (!available) {
+        return Response.json(
+          { error: `URL segment "${slugifiedSegment}" is already in use in this location` },
+          { status: 409 },
+        )
+      }
 
       if (type === 'folder') {
         await req.payload.update({
           collection: folderSlug as CollectionSlug,
           id,
           data: { pathSegment: slugifiedSegment },
-          context: { updateSlugs: true, slugChangeReason: 'rename' },
+          context: { updateSlugs: true, slugChangeReason: 'edit-url' },
           req,
         })
-      } else if (collection) {
-        if (!collections.includes(collection)) {
-          return Response.json(
-            { error: `Collection "${collection}" is not configured for page-tree` },
-            { status: 400 },
-          )
-        }
-
+      } else {
         await req.payload.update({
           collection: collection as CollectionSlug,
           id,
           data: { pageSegment: slugifiedSegment },
-          context: { updateSlugs: true, slugChangeReason: 'rename' },
+          context: { updateSlugs: true, slugChangeReason: 'edit-url' },
           req,
         })
-      } else {
-        return Response.json(
-          { error: 'Collection is required for page type' },
-          { status: 400 },
-        )
       }
 
       return Response.json({ success: true })
