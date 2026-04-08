@@ -757,7 +757,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
             const pageParentId = node.id === 'root'
               ? null
               : node.type === 'folder' ? rawId : stripIdPrefix(node.folderId ?? null)
-            const result = await apiCall('/page-tree/create', {
+            const result = (await apiCall('/page-tree/create', {
               method: 'POST',
               body: JSON.stringify({
                 type: 'page',
@@ -765,9 +765,21 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
                 parentId: pageParentId,
                 collection: selectedCollection,
               }),
-            })
+            })) as {
+              success: boolean
+              type?: 'page' | 'folder'
+              title?: string
+              pageSegment?: string
+              collisionResolved?: boolean
+            }
             if (result.success) {
-              toast.success('Page created')
+              if (result.collisionResolved && result.pageSegment) {
+                toast.success(
+                  `Created "${result.title ?? 'New Page'}" with URL segment "${result.pageSegment}" (the original was already in use)`,
+                )
+              } else {
+                toast.success(`Created "${result.title ?? 'New Page'}"`)
+              }
               window.location.reload()
             }
           } catch (error) {
@@ -783,16 +795,28 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
             const folderParentId = node.id === 'root'
               ? null
               : node.type === 'folder' ? rawId : stripIdPrefix(node.folderId ?? null)
-            const result = await apiCall('/page-tree/create', {
+            const result = (await apiCall('/page-tree/create', {
               method: 'POST',
               body: JSON.stringify({
                 type: 'folder',
                 name: 'New Folder',
                 parentId: folderParentId,
               }),
-            })
+            })) as {
+              success: boolean
+              type?: 'page' | 'folder'
+              name?: string
+              pathSegment?: string
+              collisionResolved?: boolean
+            }
             if (result.success) {
-              toast.success('Folder created')
+              if (result.collisionResolved && result.pathSegment) {
+                toast.success(
+                  `Created folder "${result.name ?? 'New Folder'}" with URL segment "${result.pathSegment}" (the original was already in use)`,
+                )
+              } else {
+                toast.success(`Created folder "${result.name ?? 'New Folder'}"`)
+              }
               window.location.reload()
             }
           } catch (error) {
