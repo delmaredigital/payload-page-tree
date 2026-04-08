@@ -1100,6 +1100,122 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
 }
 
 /**
+ * GET /api/page-tree/check-segment
+ *
+ * Lightweight availability check used by the EditUrlModal's debounced live check.
+ * Query params:
+ *   - type: 'page' | 'folder'
+ *   - parentId: string | (omitted for root)
+ *   - segment: string (will be slugified server-side)
+ *   - excludeId: string (the record being edited, so its own segment doesn't count as taken)
+ *   - collection: string (required when type === 'page')
+ */
+export function createCheckSegmentHandler(options: TreeEndpointOptions): PayloadHandler {
+  const { collections, folderSlug } = options
+
+  return async (req) => {
+    try {
+      if (!req.url) {
+        return Response.json({ error: 'Invalid request URL' }, { status: 400 })
+      }
+      const url = new URL(req.url)
+      const type = url.searchParams.get('type') as 'page' | 'folder' | null
+      const parentIdParam = url.searchParams.get('parentId')
+      const segment = url.searchParams.get('segment')
+      const excludeIdParam = url.searchParams.get('excludeId')
+      const collection = url.searchParams.get('collection')
+
+      if (!type || !segment) {
+        return Response.json(
+          { error: 'Missing required params: type, segment' },
+          { status: 400 },
+        )
+      }
+      if (type !== 'folder' && type !== 'page') {
+        return Response.json({ error: 'type must be "page" or "folder"' }, { status: 400 })
+      }
+      if (type === 'page' && !collection) {
+        return Response.json(
+          { error: 'collection is required when type is "page"' },
+          { status: 400 },
+        )
+      }
+      if (type === 'page' && collection && !collections.includes(collection)) {
+        return Response.json(
+          { error: `Collection "${collection}" is not configured for page-tree` },
+          { status: 400 },
+        )
+      }
+
+      const slugifiedSegment = slugifyName(segment)
+      const parentId = parentIdParam || null
+      const excludeId = excludeIdParam || undefined
+
+      const available = await isSegmentAvailable({
+        payload: req.payload,
+        parentId,
+        type,
+        segment: slugifiedSegment,
+        excludeId,
+        collection: collection || undefined,
+        collections,
+        folderSlug,
+      })
+
+      return Response.json({ available, slugifiedSegment })
+    } catch (error) {
+      console.error('[payload-page-tree] Check segment error:', error)
+      return Response.json(
+        { error: error instanceof Error ? error.message : 'Check segment failed' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
+ * GET /api/page-tree/folder-impact?folderId=123
+ *
+ * Returns the count of pages whose slugs would be rewritten if this folder's
+ * pathSegment changed. Includes pages in nested subfolders.
+ *
+ * Used by the EditUrlModal cascade-impact warning and the folder-move
+ * "Update URLs" type-to-confirm step.
+ */
+export function createFolderImpactHandler(options: TreeEndpointOptions): PayloadHandler {
+  const { collections, folderSlug } = options
+
+  return async (req) => {
+    try {
+      if (!req.url) {
+        return Response.json({ error: 'Invalid request URL' }, { status: 400 })
+      }
+      const url = new URL(req.url)
+      const folderId = url.searchParams.get('folderId')
+
+      if (!folderId) {
+        return Response.json({ error: 'Missing required param: folderId' }, { status: 400 })
+      }
+
+      const childPageCount = await countDescendantPages({
+        payload: req.payload,
+        folderId,
+        collections,
+        folderSlug,
+      })
+
+      return Response.json({ childPageCount })
+    } catch (error) {
+      console.error('[payload-page-tree] Folder impact error:', error)
+      return Response.json(
+        { error: error instanceof Error ? error.message : 'Folder impact failed' },
+        { status: 500 },
+      )
+    }
+  }
+}
+
+/**
  * Helper to get all child folder IDs for regenerate endpoint
  */
 async function getAllChildFolderIdsForRegenerate(
