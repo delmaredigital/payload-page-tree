@@ -552,11 +552,11 @@ export function createStatusHandler(options: TreeEndpointOptions): PayloadHandle
 }
 
 /**
- * Rename a page or folder
+ * Rename a page or folder — display field only.
  *
- * When renaming folders, accepts optional `updateSlugs` parameter:
- * - `true`: Cascade slug updates to all nested pages (if pathSegment changes)
- * - `false` (default): Keep existing slugs
+ * Renaming never touches pageSegment, pathSegment, or slug. Two pages or
+ * folders in the same parent may share a display name. To change a URL
+ * segment, use the Edit URL modal (which goes through createEditUrlHandler).
  */
 export function createRenameHandler(options: TreeEndpointOptions): PayloadHandler {
   const { collections, folderSlug } = options
@@ -568,108 +568,42 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
         id: string
         name: string
         collection?: string
-        updateSlugs?: boolean
       }
 
       if (!body?.type || !body?.id || !body?.name) {
-        return Response.json({ error: 'Missing required fields: type, id, name' }, { status: 400 })
+        return Response.json(
+          { error: 'Missing required fields: type, id, name' },
+          { status: 400 },
+        )
       }
 
-      const { type, id, name, collection, updateSlugs = false } = body
+      const { type, id, name, collection } = body
 
       if (type === 'folder') {
-        // Get the folder to find its parent
-        const folder = await req.payload.findByID({
-          collection: folderSlug as CollectionSlug,
-          id,
-          depth: 0, // Ensure we get just the ID, not the full object
-          req,
-        })
-        // Handle both ID and object cases (folder.folder could be id or {id, name, ...})
-        const rawParent = (folder as any).folder
-        const parentId = rawParent
-          ? (typeof rawParent === 'object' ? String(rawParent.id) : String(rawParent))
-          : null
-
-        // Check for name conflicts (excluding self)
-        const { docs } = await req.payload.find({
-          collection: folderSlug as CollectionSlug,
-          where: {
-            and: [
-              parentId
-                ? { folder: { equals: parentId } }
-                : { folder: { exists: false } },
-              { name: { equals: name } },
-              { id: { not_equals: id } },
-            ],
-          },
-          limit: 1,
-        })
-
-        if (docs.length > 0) {
-          return Response.json(
-            { error: `A folder named "${name}" already exists in this location` },
-            { status: 400 },
-          )
-        }
-
         await req.payload.update({
           collection: folderSlug as CollectionSlug,
           id,
-          data: {
-            name,
-            pathSegment: slugify(name),
-          },
-          context: { updateSlugs, slugChangeReason: 'rename' },
+          data: { name },
           req,
         })
       } else if (collection) {
-        // Get the page to find its parent folder
-        const page = await req.payload.findByID({
-          collection: collection as CollectionSlug,
-          id,
-          depth: 0, // Ensure we get just the ID, not the full object
-          req,
-        })
-        // Handle both ID and object cases (page.folder could be id or {id, name, ...})
-        const rawFolder = (page as any).folder
-        const parentId = rawFolder
-          ? (typeof rawFolder === 'object' ? String(rawFolder.id) : String(rawFolder))
-          : null
-
-        // Check for name conflicts (excluding self)
-        const { docs } = await req.payload.find({
-          collection: collection as CollectionSlug,
-          where: {
-            and: [
-              parentId
-                ? { folder: { equals: parentId } }
-                : { folder: { exists: false } },
-              { title: { equals: name } },
-              { id: { not_equals: id } },
-            ],
-          },
-          limit: 1,
-        })
-
-        if (docs.length > 0) {
+        if (!collections.includes(collection)) {
           return Response.json(
-            { error: `A page named "${name}" already exists in this location` },
+            { error: `Collection "${collection}" is not configured for page-tree` },
             { status: 400 },
           )
         }
-
         await req.payload.update({
           collection: collection as CollectionSlug,
           id,
-          data: {
-            title: name,
-            // Also update pageSegment when updateSlugs is true, so URL reflects new name
-            ...(updateSlugs && { pageSegment: slugify(name) }),
-          },
-          context: { updateSlugs, slugChangeReason: 'rename' },
+          data: { title: name },
           req,
         })
+      } else {
+        return Response.json(
+          { error: 'Collection is required for page type' },
+          { status: 400 },
+        )
       }
 
       return Response.json({ success: true })
