@@ -51,6 +51,7 @@ export function EditUrlModal({
   const [availability, setAvailability] = useState<AvailabilityState>('idle')
   const [originalSegment, setOriginalSegment] = useState('')
   const [cascadeImpact, setCascadeImpact] = useState<CascadeImpact>({ state: 'idle' })
+  const [confirmInput, setConfirmInput] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Initialize segment when modal opens
@@ -63,8 +64,15 @@ export function EditUrlModal({
       setError(null)
       setSaving(false)
       setAvailability('idle')
+      setConfirmInput('')
     }
   }, [isOpen, node])
+
+  // Clear type-to-confirm input whenever the segment changes
+  // (forces re-confirmation if the user edits the URL after typing the confirmation)
+  useEffect(() => {
+    setConfirmInput('')
+  }, [segment])
 
   // Fetch cascade impact for folders. Errors are surfaced as an explicit
   // 'error' state — they MUST NOT degrade silently to 'no children', because
@@ -220,6 +228,15 @@ export function EditUrlModal({
     : `/${slugifiedSegment}`
 
   const isFolder = node.type === 'folder'
+  const requiresTypeToConfirm =
+    isFolder && cascadeImpact.state === 'loaded' && cascadeImpact.count > 0
+  const typeToConfirmSatisfied =
+    !requiresTypeToConfirm || confirmInput === slugifiedSegment
+  // If we're editing a folder but the cascade fetch is in flight or failed,
+  // we MUST NOT allow saving — proceeding would let the user approve a
+  // cascade of unknown size.
+  const cascadeFetchBlocking =
+    isFolder && (cascadeImpact.state === 'loading' || cascadeImpact.state === 'error')
 
   return (
     <>
@@ -431,6 +448,44 @@ export function EditUrlModal({
           </code>
         </div>
 
+        {/* Type-to-confirm gate (folders with children only) */}
+        {requiresTypeToConfirm && (
+          <div style={{ marginBottom: '20px' }}>
+            <label
+              htmlFor="type-to-confirm-segment"
+              style={{
+                display: 'block',
+                marginBottom: '6px',
+                fontSize: '13px',
+                fontWeight: 500,
+                color: 'var(--theme-elevation-700)',
+              }}
+            >
+              Type "{slugifiedSegment}" to confirm:
+            </label>
+            <input
+              id="type-to-confirm-segment"
+              type="text"
+              value={confirmInput}
+              onChange={(e) => setConfirmInput(e.target.value)}
+              placeholder={slugifiedSegment}
+              disabled={!slugifiedSegment}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                border: '1px solid var(--theme-elevation-150)',
+                borderRadius: '4px',
+                fontSize: '14px',
+                backgroundColor: 'var(--theme-input-bg)',
+                color: 'var(--theme-elevation-800)',
+                outline: 'none',
+                boxSizing: 'border-box',
+                fontFamily: 'monospace',
+              }}
+            />
+          </div>
+        )}
+
         {/* Buttons */}
         <div
           style={{
@@ -460,7 +515,9 @@ export function EditUrlModal({
               saving ||
               !slugify(segment) ||
               availability === 'taken' ||
-              availability === 'checking'
+              availability === 'checking' ||
+              !typeToConfirmSatisfied ||
+              cascadeFetchBlocking
             return (
               <button
                 onClick={handleSave}
