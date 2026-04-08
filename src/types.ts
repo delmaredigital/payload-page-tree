@@ -160,7 +160,7 @@ export interface TreeNode {
 /**
  * Slug change reason for audit trail
  */
-export type SlugChangeReason = 'move' | 'rename' | 'regenerate' | 'restore' | 'manual'
+export type SlugChangeReason = 'move' | 'rename' | 'regenerate' | 'restore' | 'manual' | 'edit-url'
 
 /**
  * Entry in the slug history audit trail

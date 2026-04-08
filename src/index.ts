@@ -244,6 +244,7 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
                 { label: 'Regenerated', value: 'regenerate' },
                 { label: 'Restored', value: 'restore' },
                 { label: 'Manual', value: 'manual' },
+                { label: 'URL Edited', value: 'edit-url' },
               ],
             },
           ],
