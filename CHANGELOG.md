@@ -30,7 +30,29 @@ All notable changes to this project will be documented in this file.
 - **`generateUniqueName` internal helper**: Replaced by the new `src/utils/segments.ts` module which owns all segment availability and auto-increment logic (`findAvailableSegment`, `isSegmentAvailable`, `countDescendantPages`). This is an internal refactor and does not affect the plugin's public API.
 - **`updateSlugs` parameter from rename request body**: Previously optional and unused by the tree UI. External callers (if any) that were passing this field will have it silently ignored.
 
-**Migration:** None. No schema changes, no database migrations, no config changes. Existing pages with `"(copy)"` titles and existing slug history entries with `reason: 'rename'` remain valid. The behavior changes are all in how the tree UI and its endpoints respond to user actions — existing data is untouched.
+**Migration required for Postgres users:** Adding `'edit-url'` to the slug history `reason` field enum IS a schema change at the database level. Postgres consumers must generate and run a migration before using this version:
+
+```bash
+pnpm payload migrate:create
+pnpm payload migrate
+```
+
+The generated migration will look approximately like:
+
+```ts
+import { MigrateUpArgs, MigrateDownArgs, sql } from '@payloadcms/db-vercel-postgres'
+
+export async function up({ db }: MigrateUpArgs): Promise<void> {
+  await db.execute(sql`
+    ALTER TYPE "public"."enum_pages_slug_history_reason" ADD VALUE 'edit-url';
+    ALTER TYPE "public"."enum__pages_v_version_slug_history_reason" ADD VALUE 'edit-url';
+  `)
+}
+```
+
+(Adjust the enum type names to match your collection slugs if they're not named `pages`.) MongoDB and SQLite users do not need a migration — those adapters handle enum-shaped fields as flexible strings. **No data migration is required for any adapter.** Existing slug history entries with `reason: 'rename'` remain valid.
+
+Apologies for the oversight — the initial release of `0.3.13` documented this as "no migrations required", which was incorrect for Postgres. The package code is correct; only the documentation was wrong.
 
 ---
 
