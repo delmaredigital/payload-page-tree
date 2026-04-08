@@ -462,6 +462,44 @@ export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandle
 }
 
 /**
+ * Generate a unique title with (copy) / (copy N) suffix.
+ * Used by the duplicate endpoint only — applies to TITLE not pageSegment.
+ *
+ * Examples:
+ *   "Thank You" → "Thank You (copy)"
+ *   "Thank You (copy)" → "Thank You (copy 2)"
+ *   "Thank You (copy 2)" → "Thank You (copy 3)"
+ */
+function generateDuplicateTitle(baseTitle: string, existingTitles: string[]): string {
+  const copyPattern = /^(.+?)\s*\(copy(?:\s+(\d+))?\)$/i
+  const match = baseTitle.match(copyPattern)
+  const cleanBase = match ? match[1].trim() : baseTitle
+
+  const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const copyRegex = new RegExp(
+    `^${escapeRegex(cleanBase)}\\s*\\(copy(?:\\s+(\\d+))?\\)$`,
+    'i',
+  )
+
+  let maxCopyNum = 0
+  for (const title of existingTitles) {
+    if (!title) continue
+    if (title.toLowerCase() === cleanBase.toLowerCase()) {
+      maxCopyNum = Math.max(maxCopyNum, 0)
+      continue
+    }
+    const m = title.match(copyRegex)
+    if (m) {
+      const num = m[1] ? parseInt(m[1], 10) : 1
+      maxCopyNum = Math.max(maxCopyNum, num)
+    }
+  }
+
+  const nextNum = maxCopyNum + 1
+  return nextNum === 1 ? `${cleanBase} (copy)` : `${cleanBase} (copy ${nextNum})`
+}
+
+/**
  * Duplicate a page
  */
 export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHandler {
@@ -487,40 +525,63 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
         req,
       })
 
-      // Create a copy - exclude auto-generated and system fields
+      // Strip auto-generated and system fields
       const {
         id: _id,
         createdAt: _createdAt,
         updatedAt: _updatedAt,
         slug: _slug,
-        pageSegment: _pageSegment, // Exclude to let it regenerate from new title
+        pageSegment: _pageSegment,
         ...data
       } = original as Record<string, unknown>
 
       const originalTitle = (data.title as string) || 'Untitled'
-      const parentId = data.folder as string | null
+      const rawFolder = data.folder
+      const parentId = rawFolder
+        ? typeof rawFolder === 'object' && rawFolder !== null
+          ? String((rawFolder as { id: string | number }).id)
+          : String(rawFolder)
+        : null
 
-      // Generate unique name for the duplicate
-      const uniqueTitle = await generateUniqueName(
-        req.payload,
-        originalTitle,
-        'page',
+      // Get existing titles in the same folder so we can compute (copy N)
+      const { docs: siblings } = await req.payload.find({
+        collection: collection as CollectionSlug,
+        where: parentId
+          ? { folder: { equals: parentId } }
+          : { folder: { exists: false } },
+        limit: 0,
+        depth: 0,
+      })
+      const existingTitles = siblings
+        .map((d: Record<string, unknown>) => d.title)
+        .filter((t): t is string => typeof t === 'string')
+
+      const newTitle = generateDuplicateTitle(originalTitle, existingTitles)
+
+      // pageSegment uses the SHARED auto-increment rule (not "(copy)" suffix)
+      const baseSegment = slugifyName(originalTitle)
+      const newPageSegment = await findAvailableSegment({
+        payload: req.payload,
         parentId,
-        { collection, folderSlug, collections }
-      )
+        type: 'page',
+        collection,
+        baseSegment,
+        collections,
+        folderSlug,
+      })
 
       const result = await req.payload.create({
         collection: collection as CollectionSlug,
         data: {
           ...data,
-          title: uniqueTitle,
-          pageSegment: slugify(uniqueTitle), // Generate new pageSegment from new title
+          title: newTitle,
+          pageSegment: newPageSegment,
           _status: 'draft',
         },
         req,
       })
 
-      return Response.json({ success: true, id: result.id, title: uniqueTitle })
+      return Response.json({ success: true, id: result.id, title: newTitle, pageSegment: newPageSegment })
     } catch (error) {
       console.error('[payload-page-tree] Duplicate error:', error)
       return Response.json(
