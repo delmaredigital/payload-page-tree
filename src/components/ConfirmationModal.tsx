@@ -1,12 +1,29 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 interface ActionButton {
   label: string
   onClick: () => void
   variant?: 'primary' | 'secondary' | 'danger'
 }
+
+interface TypeToConfirmConfig {
+  /** The exact text the user must type to enable the primary action button. */
+  expectedText: string
+  /** Label shown above the input. e.g., 'Type "spring" to confirm:' */
+  label: string
+  /** Optional placeholder shown in the empty input. */
+  placeholder?: string
+}
+
+// NOTE: when typeToConfirm is set AND actions is set, ALL action buttons are
+// gated (disabled until the user's input matches expectedText). The Cancel
+// button rendered above the actions array is never gated. Today this works
+// because the only consumer (folder-move type-to-confirm) passes a single
+// "Confirm and Update URLs" action. If a future caller adds a non-gated
+// secondary action, this gating model will need a per-action `gated?: boolean`
+// flag.
 
 interface ConfirmationModalProps {
   isOpen: boolean
@@ -20,6 +37,12 @@ interface ConfirmationModalProps {
   onCancel: () => void
   /** Custom action buttons - if provided, replaces confirm/cancel pattern */
   actions?: ActionButton[]
+  /**
+   * If provided, renders a "type to confirm" input below the message.
+   * The primary action button (or all action buttons if `actions` is set)
+   * will be disabled until the user's input matches `expectedText` exactly.
+   */
+  typeToConfirm?: TypeToConfirmConfig
 }
 
 export function ConfirmationModal({
@@ -33,36 +56,45 @@ export function ConfirmationModal({
   onConfirm,
   onCancel,
   actions,
+  typeToConfirm,
 }: ConfirmationModalProps) {
   const confirmButtonRef = useRef<HTMLButtonElement>(null)
   const firstActionRef = useRef<HTMLButtonElement>(null)
+  const typeToConfirmInputRef = useRef<HTMLInputElement>(null)
+  const [typedText, setTypedText] = useState('')
 
-  // Focus first action button when modal opens
+  // Reset typed text whenever the modal opens or the expected text changes
   useEffect(() => {
     if (isOpen) {
-      if (actions && firstActionRef.current) {
-        firstActionRef.current.focus()
-      } else if (confirmButtonRef.current) {
-        confirmButtonRef.current.focus()
-      }
+      setTypedText('')
     }
-  }, [isOpen, actions])
+  }, [isOpen, typeToConfirm?.expectedText])
+
+  // Focus the type-to-confirm input if present, otherwise the primary button
+  useEffect(() => {
+    if (!isOpen) return
+    if (typeToConfirm && typeToConfirmInputRef.current) {
+      typeToConfirmInputRef.current.focus()
+    } else if (actions && firstActionRef.current) {
+      firstActionRef.current.focus()
+    } else if (confirmButtonRef.current) {
+      confirmButtonRef.current.focus()
+    }
+  }, [isOpen, actions, typeToConfirm])
 
   // Handle escape key
   useEffect(() => {
     if (!isOpen) return
-
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCancel()
-      }
+      if (e.key === 'Escape') onCancel()
     }
-
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onCancel])
 
   if (!isOpen) return null
+
+  const confirmGateMet = !typeToConfirm || typedText === typeToConfirm.expectedText
 
   return (
     <>
@@ -126,7 +158,7 @@ export function ConfirmationModal({
         {details && (
           <p
             style={{
-              margin: '0 0 24px 0',
+              margin: '0 0 16px 0',
               fontSize: '13px',
               color: 'var(--theme-elevation-500)',
               padding: '12px',
@@ -135,10 +167,49 @@ export function ConfirmationModal({
                 : 'var(--theme-elevation-50)',
               borderRadius: '4px',
               lineHeight: 1.4,
+              whiteSpace: 'pre-wrap',
             }}
           >
             {details}
           </p>
+        )}
+
+        {/* Type-to-confirm input */}
+        {typeToConfirm && (
+          <div style={{ marginBottom: '20px' }}>
+            <label
+              htmlFor="type-to-confirm-input"
+              style={{
+                display: 'block',
+                marginBottom: '6px',
+                fontSize: '13px',
+                fontWeight: 500,
+                color: 'var(--theme-elevation-700)',
+              }}
+            >
+              {typeToConfirm.label}
+            </label>
+            <input
+              ref={typeToConfirmInputRef}
+              id="type-to-confirm-input"
+              type="text"
+              value={typedText}
+              onChange={(e) => setTypedText(e.target.value)}
+              placeholder={typeToConfirm.placeholder}
+              style={{
+                width: '100%',
+                padding: '8px 12px',
+                border: '1px solid var(--theme-elevation-150)',
+                borderRadius: '4px',
+                fontSize: '14px',
+                backgroundColor: 'var(--theme-input-bg)',
+                color: 'var(--theme-elevation-800)',
+                outline: 'none',
+                boxSizing: 'border-box',
+                fontFamily: 'monospace',
+              }}
+            />
+          </div>
         )}
 
         {/* Buttons */}
@@ -147,13 +218,12 @@ export function ConfirmationModal({
             display: 'flex',
             justifyContent: 'flex-end',
             gap: '12px',
-            marginTop: details ? '0' : '24px',
+            marginTop: details || typeToConfirm ? '0' : '24px',
             flexWrap: 'wrap',
           }}
         >
           {actions ? (
             <>
-              {/* Cancel button for custom actions */}
               <button
                 onClick={onCancel}
                 style={{
@@ -168,7 +238,6 @@ export function ConfirmationModal({
               >
                 {cancelLabel}
               </button>
-              {/* Custom action buttons */}
               {actions.map((action, index) => {
                 const getButtonStyles = () => {
                   const base = {
@@ -176,7 +245,8 @@ export function ConfirmationModal({
                     borderRadius: '4px',
                     fontSize: '14px',
                     fontWeight: 500,
-                    cursor: 'pointer',
+                    cursor: confirmGateMet ? 'pointer' : 'not-allowed',
+                    opacity: confirmGateMet ? 1 : 0.5,
                   }
                   switch (action.variant) {
                     case 'danger':
@@ -208,6 +278,7 @@ export function ConfirmationModal({
                     key={action.label}
                     ref={index === 0 ? firstActionRef : undefined}
                     onClick={action.onClick}
+                    disabled={!confirmGateMet}
                     style={getButtonStyles()}
                   >
                     {action.label}
@@ -217,7 +288,6 @@ export function ConfirmationModal({
             </>
           ) : (
             <>
-              {/* Standard confirm/cancel pattern */}
               <button
                 onClick={onCancel}
                 style={{
@@ -235,6 +305,7 @@ export function ConfirmationModal({
               <button
                 ref={confirmButtonRef}
                 onClick={onConfirm}
+                disabled={!confirmGateMet}
                 style={{
                   padding: '8px 16px',
                   border: 'none',
@@ -245,7 +316,8 @@ export function ConfirmationModal({
                   color: 'white',
                   fontSize: '14px',
                   fontWeight: 500,
-                  cursor: 'pointer',
+                  cursor: confirmGateMet ? 'pointer' : 'not-allowed',
+                  opacity: confirmGateMet ? 1 : 0.6,
                 }}
               >
                 {confirmLabel}
