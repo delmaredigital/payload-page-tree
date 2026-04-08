@@ -3,10 +3,16 @@
 import { useState, useEffect, useRef } from 'react'
 import type { TreeNode } from '../types.js'
 
+type AvailabilityState = 'idle' | 'checking' | 'available' | 'taken'
+
 interface EditUrlModalProps {
   isOpen: boolean
   node: TreeNode | null
   folderPath: string
+  /** Folder ID of the parent for collision lookups. Null = root. Must be the raw (unprefixed) ID. */
+  parentId: string | null
+  /** API call helper from PageTreeClient. */
+  apiCall: (endpoint: string, options?: RequestInit) => Promise<unknown>
   onSave: (segment: string) => Promise<void>
   onCancel: () => void
 }
@@ -28,23 +34,83 @@ export function EditUrlModal({
   isOpen,
   node,
   folderPath,
+  parentId,
+  apiCall,
   onSave,
   onCancel,
 }: EditUrlModalProps) {
   const [segment, setSegment] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [availability, setAvailability] = useState<AvailabilityState>('idle')
+  const [originalSegment, setOriginalSegment] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Initialize segment when modal opens
   useEffect(() => {
     if (isOpen && node) {
       const currentSegment = node.type === 'folder' ? node.pathSegment : node.slug?.split('/').pop()
-      setSegment(currentSegment || '')
+      const initial = currentSegment || ''
+      setSegment(initial)
+      setOriginalSegment(initial)
       setError(null)
       setSaving(false)
+      setAvailability('idle')
     }
   }, [isOpen, node])
+
+  // Debounced live availability check (300ms)
+  //
+  // Race-condition guard: we use a closed-over `cancelled` flag rather than
+  // comparing segment values inside the callback, because the callback's
+  // closure captures `segment` at effect-run time — comparing it to itself
+  // is always trivially true and provides no race protection. The cleanup
+  // function sets cancelled=true so any in-flight fetch from a stale effect
+  // can short-circuit before calling setAvailability.
+  useEffect(() => {
+    if (!isOpen || !node) return
+
+    const slugifiedSegment = slugify(segment)
+
+    // Empty segment, or unchanged from original — no check needed
+    if (!slugifiedSegment || slugifiedSegment === originalSegment) {
+      setAvailability('idle')
+      return
+    }
+
+    setAvailability('checking')
+
+    let cancelled = false
+    const timeoutId = setTimeout(async () => {
+      try {
+        const params = new URLSearchParams({
+          type: node.type,
+          segment: slugifiedSegment,
+          excludeId: node.rawId || node.id.replace(/^(folder|page)-/, ''),
+        })
+        if (parentId) params.set('parentId', parentId)
+        if (node.collection) params.set('collection', node.collection)
+
+        const result = (await apiCall(`/page-tree/check-segment?${params.toString()}`)) as {
+          available: boolean
+        }
+
+        if (!cancelled) {
+          setAvailability(result.available ? 'available' : 'taken')
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Availability check failed:', err)
+          setAvailability('idle')
+        }
+      }
+    }, 300)
+
+    return () => {
+      cancelled = true
+      clearTimeout(timeoutId)
+    }
+  }, [isOpen, node, segment, originalSegment, parentId, apiCall])
 
   // Focus input when modal opens
   useEffect(() => {
@@ -218,6 +284,39 @@ export function EditUrlModal({
               {error}
             </p>
           )}
+          {availability === 'checking' && (
+            <p
+              style={{
+                margin: '6px 0 0 0',
+                fontSize: '12px',
+                color: 'var(--theme-elevation-500)',
+              }}
+            >
+              Checking availability...
+            </p>
+          )}
+          {availability === 'available' && (
+            <p
+              style={{
+                margin: '6px 0 0 0',
+                fontSize: '12px',
+                color: 'var(--theme-success-500, #22c55e)',
+              }}
+            >
+              ✓ Available
+            </p>
+          )}
+          {availability === 'taken' && (
+            <p
+              style={{
+                margin: '6px 0 0 0',
+                fontSize: '12px',
+                color: 'var(--theme-error-500, #ef4444)',
+              }}
+            >
+              ✗ URL is already in use
+            </p>
+          )}
         </div>
 
         {/* Preview */}
@@ -277,23 +376,32 @@ export function EditUrlModal({
           >
             Cancel
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || !slugify(segment)}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: '4px',
-              backgroundColor: 'var(--theme-success-500, #22c55e)',
-              color: 'white',
-              fontSize: '14px',
-              fontWeight: 500,
-              cursor: saving || !slugify(segment) ? 'not-allowed' : 'pointer',
-              opacity: saving || !slugify(segment) ? 0.6 : 1,
-            }}
-          >
-            {saving ? 'Saving...' : 'Save'}
-          </button>
+          {(() => {
+            const isDisabled =
+              saving ||
+              !slugify(segment) ||
+              availability === 'taken' ||
+              availability === 'checking'
+            return (
+              <button
+                onClick={handleSave}
+                disabled={isDisabled}
+                style={{
+                  padding: '8px 16px',
+                  border: 'none',
+                  borderRadius: '4px',
+                  backgroundColor: 'var(--theme-success-500, #22c55e)',
+                  color: 'white',
+                  fontSize: '14px',
+                  fontWeight: 500,
+                  cursor: isDisabled ? 'not-allowed' : 'pointer',
+                  opacity: isDisabled ? 0.6 : 1,
+                }}
+              >
+                {saving ? 'Saving...' : 'Save'}
+              </button>
+            )
+          })()}
         </div>
       </div>
     </>

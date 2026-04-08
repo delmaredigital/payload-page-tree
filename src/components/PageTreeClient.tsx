@@ -1068,6 +1068,8 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
           isOpen={editUrlState !== null}
           node={editUrlState?.node ?? null}
           folderPath={editUrlState?.folderPath ?? ''}
+          parentId={stripIdPrefix(editUrlState?.node?.folderId ?? null)}
+          apiCall={apiCall}
           onSave={handleEditUrlSave}
           onCancel={closeEditUrl}
         />
