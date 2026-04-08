@@ -16,6 +16,8 @@ import {
   createRedirectsHandler,
   createRestoreSlugHandler,
   createEditUrlHandler,
+  createCheckSegmentHandler,
+  createFolderImpactHandler,
 } from './endpoints/treeOperations.js'
 
 export type { PageTreePluginConfig, BuildSlugFn, BuildSlugArgs } from './types.js'
@@ -386,6 +388,16 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
         path: '/page-tree/edit-url',
         method: 'post',
         handler: createEditUrlHandler(endpointOptions),
+      },
+      {
+        path: '/page-tree/check-segment',
+        method: 'get',
+        handler: createCheckSegmentHandler(endpointOptions),
+      },
+      {
+        path: '/page-tree/folder-impact',
+        method: 'get',
+        handler: createFolderImpactHandler(endpointOptions),
       },
     ]
 
