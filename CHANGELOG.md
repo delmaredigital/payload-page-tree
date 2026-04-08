@@ -2,6 +2,38 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.13] - 2026-04-08
+
+### Changed
+
+- **Title and URL are now independent**: Renaming a page or folder display name no longer touches the URL segment. Previously, folder rename via the tree could cascade slug updates to all nested pages, and duplicate page/folder titles in the same parent were blocked. The new rule: display fields (`title`, `name`) and URL segments (`pageSegment`, `pathSegment`) are fully independent after create. To change a URL segment, use the **Edit URL** action explicitly.
+- **Folder rename no longer prompts**: The "Keep URLs / Update URLs" confirmation that appeared when renaming a folder with children has been removed. Folder rename now just renames — it never touches child page slugs. If you want to change a folder's URL segment and cascade to children, use **Edit URL** on the folder instead (which has its own explicit confirmation with type-to-confirm safety gate).
+- **Duplicate page behavior**: Duplicating a page still appends "(copy)" / "(copy 2)" to the title, but the new page's URL segment now auto-increments independently (`thank-you`, `thank-you-2`, `thank-you-3`) instead of being derived from the mangled title (`thank-you-copy`).
+- **Create allows duplicate titles**: Creating a new page or folder with a title that already exists in the same parent is now allowed. The display name is kept as-is; only the URL segment is auto-disambiguated. The success toast surfaces the resolved URL when a collision is resolved.
+
+### Added
+
+- **Live URL availability check in Edit URL modal**: As you type a new URL segment, the modal performs a debounced server-side check (300ms) and shows a green "Available" or red "URL is already in use" indicator. The Save button is disabled until a valid, available segment is entered. Closes a data-integrity hole where duplicate segments could previously be saved silently.
+- **Folder cascade safety gate**: Editing a folder's URL segment (via Edit URL) or moving a folder with children while choosing "Update URLs" now requires a type-to-confirm step. The modal shows the exact number of child pages affected and requires the user to type the new pathSegment to proceed. Applies to both single and bulk folder moves. Prevents accidental cascading URL rewrites.
+- **Two new API endpoints**:
+  - `GET /api/page-tree/check-segment` — lightweight availability lookup backing the live check in the Edit URL modal.
+  - `GET /api/page-tree/folder-impact?folderId=X` — returns the count of pages whose slugs would be rewritten if the folder's URL segment changed.
+- **New `'edit-url'` value in `SlugChangeReason`**: Slug history entries created via the Edit URL modal now use this reason instead of `'rename'`. Existing history entries are unchanged.
+
+### Fixed
+
+- **Renaming a page no longer changes its URL**: The rename endpoint previously had a code path that could rewrite `pageSegment` as a side effect of renaming. This was gated behind a flag the client never set, but the capability existed as a foot-gun. It has been removed entirely. Rename is now strictly a display-field-only write.
+- **`countDescendantPages` no longer swallows errors**: If a per-collection query fails, the error now propagates to the endpoint (which returns 500) and the modal refuses to proceed, rather than silently undercounting and misleading the user about cascade impact.
+
+### Removed
+
+- **`generateUniqueName` internal helper**: Replaced by the new `src/utils/segments.ts` module which owns all segment availability and auto-increment logic (`findAvailableSegment`, `isSegmentAvailable`, `countDescendantPages`). This is an internal refactor and does not affect the plugin's public API.
+- **`updateSlugs` parameter from rename request body**: Previously optional and unused by the tree UI. External callers (if any) that were passing this field will have it silently ignored.
+
+**Migration:** None. No schema changes, no database migrations, no config changes. Existing pages with `"(copy)"` titles and existing slug history entries with `reason: 'rename'` remain valid. The behavior changes are all in how the tree UI and its endpoints respond to user actions — existing data is untouched.
+
+---
+
 ## [0.3.12] - 2026-03-20
 
 ### Fixed
