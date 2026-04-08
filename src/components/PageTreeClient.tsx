@@ -50,6 +50,13 @@ interface PendingMove {
   affectedCount: number
 }
 
+interface PendingMoveConfirmation {
+  /** The original pending move that was confirmed for "Update URLs" */
+  pendingMove: PendingMove
+  /** The folder's pathSegment, which the user must type to confirm */
+  expectedSegment: string
+}
+
 interface BulkMoveItem {
   dragId: string
   node: TreeNodeType
@@ -184,6 +191,8 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
   const [sortOption, setSortOption] = useState<SortOption>('default')
   const treeRef = useRef<TreeApi<TreeNodeType>>(null)
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null)
+  const [pendingMoveConfirmation, setPendingMoveConfirmation] =
+    useState<PendingMoveConfirmation | null>(null)
   const [pendingBulkMove, setPendingBulkMove] = useState<PendingBulkMove | null>(null)
   const [moveToModal, setMoveToModal] = useState<MoveToState | null>(null)
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null)
@@ -366,16 +375,40 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
   // Confirm move operation
   const confirmMove = useCallback(
     (updateSlugs: boolean) => {
-      if (pendingMove) {
-        executeMove(
-          pendingMove.dragIds,
-          pendingMove.parentId,
-          pendingMove.index,
-          pendingMove.node,
-          updateSlugs,
-        )
+      if (!pendingMove) return
+
+      // Folder moves with children + Update URLs require type-to-confirm
+      if (
+        updateSlugs &&
+        pendingMove.node.type === 'folder' &&
+        pendingMove.affectedCount > 0
+      ) {
+        // SAFETY: if pathSegment is missing or empty, the type-to-confirm gate
+        // becomes "type empty string to confirm" which any input satisfies —
+        // defeating the entire safety mechanism. Refuse to proceed and surface
+        // an error instead.
+        const expectedSegment = pendingMove.node.pathSegment
+        if (!expectedSegment) {
+          toast.error(
+            `Cannot update URLs: folder "${pendingMove.node.name}" has no URL segment`,
+          )
+          setPendingMove(null)
+          return
+        }
+        setPendingMoveConfirmation({ pendingMove, expectedSegment })
         setPendingMove(null)
+        return
       }
+
+      // Otherwise proceed immediately (page move, or folder with no children, or Keep URLs)
+      executeMove(
+        pendingMove.dragIds,
+        pendingMove.parentId,
+        pendingMove.index,
+        pendingMove.node,
+        updateSlugs,
+      )
+      setPendingMove(null)
     },
     [pendingMove, executeMove],
   )
@@ -383,6 +416,18 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
   // Cancel move operation
   const cancelMove = useCallback(() => {
     setPendingMove(null)
+  }, [])
+
+  // Confirm the type-to-confirm gate for folder move with Update URLs
+  const confirmMoveTypeGate = useCallback(() => {
+    if (!pendingMoveConfirmation) return
+    const { pendingMove: pm } = pendingMoveConfirmation
+    executeMove(pm.dragIds, pm.parentId, pm.index, pm.node, true)
+    setPendingMoveConfirmation(null)
+  }, [pendingMoveConfirmation, executeMove])
+
+  const cancelMoveTypeGate = useCallback(() => {
+    setPendingMoveConfirmation(null)
   }, [])
 
   // Confirm single item in bulk move
@@ -971,6 +1016,39 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
             {
               label: 'Update URL',
               onClick: () => confirmMove(true),
+              variant: 'primary',
+            },
+          ]}
+        />
+
+        {/* Move Type-to-Confirm Modal (folder + Update URLs path) */}
+        <ConfirmationModal
+          isOpen={pendingMoveConfirmation !== null}
+          title="Confirm URL Update"
+          message={
+            pendingMoveConfirmation
+              ? `This will update URLs for ${pendingMoveConfirmation.pendingMove.affectedCount} child page${pendingMoveConfirmation.pendingMove.affectedCount === 1 ? '' : 's'}.`
+              : ''
+          }
+          details={
+            pendingMoveConfirmation
+              ? `The folder's URL segment is: ${pendingMoveConfirmation.expectedSegment}`
+              : undefined
+          }
+          onCancel={cancelMoveTypeGate}
+          typeToConfirm={
+            pendingMoveConfirmation
+              ? {
+                  expectedText: pendingMoveConfirmation.expectedSegment,
+                  label: `Type "${pendingMoveConfirmation.expectedSegment}" to confirm:`,
+                  placeholder: pendingMoveConfirmation.expectedSegment,
+                }
+              : undefined
+          }
+          actions={[
+            {
+              label: 'Confirm and Update URLs',
+              onClick: confirmMoveTypeGate,
               variant: 'primary',
             },
           ]}
