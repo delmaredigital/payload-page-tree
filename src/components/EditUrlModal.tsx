@@ -5,6 +5,12 @@ import type { TreeNode } from '../types.js'
 
 type AvailabilityState = 'idle' | 'checking' | 'available' | 'taken'
 
+type CascadeImpact =
+  | { state: 'idle' }
+  | { state: 'loading' }
+  | { state: 'loaded'; count: number }
+  | { state: 'error'; message: string }
+
 interface EditUrlModalProps {
   isOpen: boolean
   node: TreeNode | null
@@ -44,6 +50,7 @@ export function EditUrlModal({
   const [error, setError] = useState<string | null>(null)
   const [availability, setAvailability] = useState<AvailabilityState>('idle')
   const [originalSegment, setOriginalSegment] = useState('')
+  const [cascadeImpact, setCascadeImpact] = useState<CascadeImpact>({ state: 'idle' })
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Initialize segment when modal opens
@@ -58,6 +65,44 @@ export function EditUrlModal({
       setAvailability('idle')
     }
   }, [isOpen, node])
+
+  // Fetch cascade impact for folders. Errors are surfaced as an explicit
+  // 'error' state — they MUST NOT degrade silently to 'no children', because
+  // a missed count would let the user approve a cascade of unknown size.
+  useEffect(() => {
+    if (!isOpen || !node || node.type !== 'folder') {
+      setCascadeImpact({ state: 'idle' })
+      return
+    }
+
+    const folderId = node.rawId || node.id.replace(/^folder-/, '')
+    let cancelled = false
+
+    setCascadeImpact({ state: 'loading' })
+
+    ;(async () => {
+      try {
+        const result = (await apiCall(`/page-tree/folder-impact?folderId=${folderId}`)) as {
+          childPageCount: number
+        }
+        if (!cancelled) {
+          setCascadeImpact({ state: 'loaded', count: result.childPageCount })
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error('Folder impact fetch failed:', err)
+          setCascadeImpact({
+            state: 'error',
+            message: err instanceof Error ? err.message : 'Failed to fetch cascade impact',
+          })
+        }
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, node, apiCall])
 
   // Debounced live availability check (300ms)
   //
@@ -234,6 +279,40 @@ export function EditUrlModal({
             ? 'Change the URL segment for this folder. This will update URLs for all pages inside.'
             : 'Change the URL segment for this page.'}
         </p>
+
+        {/* Cascade impact warning (folders only, when there are children) */}
+        {isFolder && cascadeImpact.state === 'loaded' && cascadeImpact.count > 0 && (
+          <div
+            style={{
+              padding: '10px 12px',
+              backgroundColor: 'var(--theme-warning-50, #fffbeb)',
+              border: '1px solid var(--theme-warning-200, #fde68a)',
+              borderRadius: '4px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: 'var(--theme-warning-800, #92400e)',
+            }}
+          >
+            Warning: this will update URLs for {cascadeImpact.count} child page
+            {cascadeImpact.count === 1 ? '' : 's'}.
+          </div>
+        )}
+        {isFolder && cascadeImpact.state === 'error' && (
+          <div
+            style={{
+              padding: '10px 12px',
+              backgroundColor: 'var(--theme-error-50, #fef2f2)',
+              border: '1px solid var(--theme-error-200, #fecaca)',
+              borderRadius: '4px',
+              marginBottom: '16px',
+              fontSize: '13px',
+              color: 'var(--theme-error-700, #b91c1c)',
+            }}
+          >
+            Failed to fetch cascade impact: {cascadeImpact.message}. Save is
+            disabled until this can be retrieved.
+          </div>
+        )}
 
         {/* Input */}
         <div style={{ marginBottom: '16px' }}>
