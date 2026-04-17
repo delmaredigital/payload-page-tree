@@ -1,13 +1,16 @@
 'use client'
 
 import Link from 'next/link'
-import { NavGroup } from '@payloadcms/ui'
+import { NavGroup, useConfig } from '@payloadcms/ui'
 
 export function PageTreeNavLink() {
+  const { config } = useConfig()
+  const adminRoute = config?.routes?.admin || '/admin'
+
   return (
     <NavGroup label="Page Tree">
       <Link
-        href="/admin/page-tree"
+        href={`${adminRoute}/page-tree`}
         className="nav__link"
         id="nav-page-tree"
       >

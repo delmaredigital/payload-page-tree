@@ -1,4 +1,4 @@
-import type { CollectionAfterChangeHook, CollectionSlug, Payload } from 'payload'
+import type { CollectionAfterChangeHook, CollectionSlug, PayloadRequest } from 'payload'
 import type { FolderDocument } from '../types.js'
 
 interface CascadeOptions {
@@ -38,13 +38,15 @@ export function createCascadeSlugUpdatesHook(
     }
 
     // Find all folders that are children of this folder (at any depth)
-    const childFolderIds = await getAllChildFolderIds(doc.id, req.payload, folderSlug)
+    const childFolderIds = await getAllChildFolderIds(doc.id, req, folderSlug)
     const allAffectedFolderIds = [doc.id, ...childFolderIds]
 
     // Update all pages in affected folders
     for (const collectionSlug of collections) {
       try {
-        // Find all pages in any of the affected folders
+        // Find all pages in any of the affected folders.
+        // Pass `req` so this runs in the same transaction as the folder update;
+        // otherwise Postgres deadlocks against the row lock the outer txn holds.
         const { docs: pages } = await req.payload.find({
           collection: collectionSlug as CollectionSlug,
           where: {
@@ -54,6 +56,7 @@ export function createCascadeSlugUpdatesHook(
           },
           limit: 0, // Get all
           depth: 0,
+          req,
         })
 
         // Re-save each page to trigger slug regeneration
@@ -63,6 +66,7 @@ export function createCascadeSlugUpdatesHook(
             id: page.id,
             data: {}, // Empty update triggers beforeChange hook
             context: { cascading: true, updateSlugs: true }, // Prevent loops + enable regeneration
+            req,
           })
         }
 
@@ -83,10 +87,10 @@ export function createCascadeSlugUpdatesHook(
  */
 async function getAllChildFolderIds(
   parentId: number | string,
-  payload: Payload,
+  req: PayloadRequest,
   folderSlug: string,
 ): Promise<(number | string)[]> {
-  const result = await payload.find({
+  const result = await req.payload.find({
     collection: folderSlug as CollectionSlug,
     where: {
       folder: {
@@ -95,6 +99,7 @@ async function getAllChildFolderIds(
     },
     limit: 0,
     depth: 0,
+    req,
   })
 
   const children = result.docs as unknown as FolderDocument[]
@@ -103,7 +108,7 @@ async function getAllChildFolderIds(
   // Recursively get grandchildren
   const grandchildIds: (number | string)[] = []
   for (const childId of childIds) {
-    const descendants = await getAllChildFolderIds(childId, payload, folderSlug)
+    const descendants = await getAllChildFolderIds(childId, req, folderSlug)
     grandchildIds.push(...descendants)
   }
 

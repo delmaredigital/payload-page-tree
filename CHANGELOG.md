@@ -2,6 +2,15 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.14] - 2026-04-16
+
+### Fixed
+
+- **Folder Edit URL no longer deadlocks on Postgres** (#2): The `cascadeSlugUpdates` afterChange hook now passes `req` through to its internal `find` and `update` calls. Previously those operations ran on a separate connection from the outer folder update's transaction, causing Postgres to deadlock on the locked folder row whenever the folder had child pages. The outer transaction would then roll back — the folder name appeared to persist briefly but child page slugs never updated. All nested payload operations inside the cascade now share the request transaction.
+- **Custom admin routes are respected** (#3): The "Manage Pages" nav link and the context-menu "Edit in Payload" action previously hardcoded `/admin`, breaking anyone who set a custom `routes.admin` in their Payload config. The nav link now reads the admin route from `useConfig()`, and the context-menu action uses the `adminRoute` already plumbed through `PageTreeClient`.
+
+Thanks to @superxiao for both reports.
+
 ## [0.3.13] - 2026-04-08
 
 ### Changed

@@ -700,9 +700,8 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
 
         case 'editInPayload':
           // Always open in Payload collection editor (for field-level editing)
-          // Hardcoded to /admin since this specifically targets Payload's native admin
           if (node.collection) {
-            window.location.href = `/admin/collections/${node.collection}/${rawId}`
+            window.location.href = `${adminRoute}/collections/${node.collection}/${rawId}`
           }
           break
 
