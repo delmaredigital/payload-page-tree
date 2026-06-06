@@ -452,13 +452,16 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
         req,
       })
 
-      // Strip auto-generated and system fields
+      // Strip auto-generated and system fields. slugHistory is dropped too: its
+      // array rows carry generated ids that payload.create() rejects, and a fresh
+      // duplicate should start with no previous URL history.
       const {
         id: _id,
         createdAt: _createdAt,
         updatedAt: _updatedAt,
         slug: _slug,
         pageSegment: _pageSegment,
+        slugHistory: _slugHistory,
         ...data
       } = original as Record<string, unknown>
 

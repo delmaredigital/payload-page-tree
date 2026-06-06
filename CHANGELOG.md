@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.16] - 2026-06-06
+
+### Fixed
+
+- **Duplicating a page with `slugHistory` no longer fails** (#4): The duplicate handler shallow-copied the source document into `payload.create()`, including `slugHistory` array rows that carry Payload-generated row `id`s. Payload rejected those nested ids with `The following field is invalid: id`. `slugHistory` is now stripped before duplication — the new page correctly starts with no prior URL history. Thanks to @superxiao for the report.
+
 ## [0.3.15] - 2026-06-06
 
 ### Fixed
