@@ -11,6 +11,7 @@
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 :root {
+  color-scheme: dark;
   --bg: #010919;
   --bg-raised: #041020;
   --bg-surface: #0d1b2d;
@@ -25,6 +26,9 @@
   --accent-glow: rgba(0, 178, 179, 0.08);
   --code-bg: #000514;
   --code-border: #051223;
+  --code-text: #e8f0f3;
+  --header-bg: rgba(1, 9, 25, 0.82);
+  --nav-mobile-bg: rgba(1, 9, 25, 0.92);
   --success: #4ade80;
   --warning: #fbbf24;
   --danger: #f87171;
@@ -35,6 +39,28 @@
   --font-mono: 'DM Mono', 'SF Mono', monospace;
   --radius: 8px;
   --radius-sm: 5px;
+}
+
+/* Light theme. Code blocks intentionally stay dark in both themes so the
+   syntax-highlight palette (.hl-*) and code text stay readable — only the
+   page chrome switches. --code-bg/--code-border/--code-text keep the dark
+   defaults above by not being overridden here. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --bg-raised: #f7f9fb;
+  --bg-surface: #eef2f6;
+  --bg-hover: #e4ebf1;
+  --border: #d7dfe7;
+  --border-subtle: #e8edf2;
+  --text: #0d1b2d;
+  --text-secondary: #44535f;
+  --text-muted: #6b7884;
+  --accent: #008789;
+  --accent-dim: #006d6e;
+  --accent-glow: rgba(0, 135, 137, 0.10);
+  --header-bg: rgba(255, 255, 255, 0.82);
+  --nav-mobile-bg: rgba(255, 255, 255, 0.94);
 }
 
 html { scroll-behavior: smooth; scroll-padding-top: calc(var(--header-h) + 24px); }
@@ -53,7 +79,7 @@ body {
   position: fixed;
   top: 0; left: 0; right: 0;
   height: var(--header-h);
-  background: rgba(1, 9, 25, 0.82);
+  background: var(--header-bg);
   backdrop-filter: blur(16px) saturate(1.4);
   -webkit-backdrop-filter: blur(16px) saturate(1.4);
   border-bottom: 1px solid var(--border-subtle);
@@ -127,6 +153,26 @@ body {
 }
 
 .menu-toggle svg { display: block; }
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 6px;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+.theme-toggle:hover { color: var(--text); background: var(--bg-hover); }
+.theme-toggle svg { display: block; }
+/* Default (dark) shows the sun (tap → light); light theme shows the moon.
+   Selectors are scoped to .theme-toggle so they outrank `.theme-toggle svg`. */
+.theme-toggle .theme-icon-moon { display: none; }
+:root[data-theme="light"] .theme-toggle .theme-icon-sun { display: none; }
+:root[data-theme="light"] .theme-toggle .theme-icon-moon { display: block; }
 
 /* ── SEARCH ── */
 .search-wrap {
@@ -380,7 +426,7 @@ pre {
   font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.65;
-  color: var(--text);
+  color: var(--code-text);
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
@@ -601,7 +647,7 @@ details .details-body > :first-child { margin-top: 0; }
 .install-block code {
   flex: 1;
   background: none;
-  color: var(--text);
+  color: var(--code-text);
   padding: 0;
 }
 
@@ -626,7 +672,7 @@ details .details-body > :first-child { margin-top: 0; }
   position: fixed;
   top: var(--header-h);
   left: 0; right: 0; bottom: 0;
-  background: rgba(1, 9, 25, 0.92);
+  background: var(--nav-mobile-bg);
   backdrop-filter: blur(8px);
   z-index: 200;
   overflow-y: auto;
@@ -723,6 +769,18 @@ details .details-body > :first-child { margin-top: 0; }
   th, td { padding: 8px 10px; }
 }
 </style>
+<script>
+  // Apply the saved (or OS-preferred) theme before first paint to avoid a flash.
+  (function () {
+    try {
+      var stored = localStorage.getItem('pp-docs-theme');
+      var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
+      document.documentElement.setAttribute('data-theme', stored || (prefersLight ? 'light' : 'dark'));
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme', 'dark');
+    }
+  })();
+</script>
 </head>
 <body>
 
@@ -734,7 +792,7 @@ details .details-body > :first-child { margin-top: 0; }
   <div class="header-brand">
     <span>payload</span>-page-tree
   </div>
-  <span class="header-badge">v0.3.10</span>
+  <span class="header-badge">v0.3.15</span>
 
   <div class="search-wrap">
     <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="2"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
@@ -743,6 +801,10 @@ details .details-body > :first-child { margin-top: 0; }
   </div>
 
   <div class="header-links">
+    <button class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle light and dark theme" title="Toggle theme">
+      <svg class="theme-icon-sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      <svg class="theme-icon-moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    </button>
     <a href="https://github.com/delmaredigital/payload-page-tree">GitHub</a>
     <a href="https://www.npmjs.com/package/@delmaredigital/payload-page-tree">npm</a>
     <a href="https://demo.delmaredigital.com" class="cta">Live Demo</a>
@@ -939,7 +1001,8 @@ Page in "2024" folder with pageSegment "spring-campaign":
         <li><strong>"Move to..." action</strong> &mdash; right-click menu option to select destination folder without dragging</li>
         <li><strong>Sorting options</strong> &mdash; sort by name, slug, or status (drag-drop disabled while sorting)</li>
         <li><strong>Collection dropdown</strong> &mdash; switch between page types (only appears when multiple collections are configured)</li>
-        <li><strong>Context menu</strong> (right-click) for actions like edit, duplicate, publish/unpublish, move, delete</li>
+        <li><strong>Context menu</strong> (right-click) for actions like edit, Edit URL, duplicate, publish/unpublish, move, delete</li>
+        <li><strong>Edit URL</strong> &mdash; change a page or folder's URL segment independently of its display name, with a live availability check and type-to-confirm safety gate (see <a href="#cascading-updates">Cascading Updates</a>)</li>
         <li><strong>URL preservation</strong> &mdash; when moving folders, choose to keep existing URLs or update them</li>
         <li><strong>Bulk URL updates</strong> &mdash; "Update All" / "Keep All" buttons for batch confirmation</li>
         <li><strong>Regenerate URLs</strong> &mdash; manually regenerate slugs for a folder and all its contents</li>
@@ -950,12 +1013,26 @@ Page in "2024" folder with pageSegment "spring-campaign":
     <!-- ═══════ CASCADING UPDATES ═══════ -->
     <div class="section" id="cascading-updates">
       <h2>Cascading Updates</h2>
-      <p>When you rename a folder's <code>pathSegment</code> or move a folder:</p>
+      <div class="callout callout-info">
+        <p><strong>Display name and URL are independent.</strong> Renaming a page or folder (its <code>title</code>/<code>name</code>) never changes its URL segment. To change a URL segment, use the <strong>Edit URL</strong> action explicitly. This separation has been the behavior since v0.3.13.</p>
+      </div>
+      <p>A page or folder's URL can change in two ways, both of which cascade to descendants:</p>
       <ul>
-        <li><strong>Keep existing URLs</strong> &mdash; pages stay at their current URLs (default for moves)</li>
-        <li><strong>Update URLs</strong> &mdash; all pages in that folder (and subfolders) get new slugs based on the new path</li>
+        <li><strong>Moving a folder</strong> &mdash; when you move a folder in the tree, you choose to <strong>Keep existing URLs</strong> (pages stay at their current URLs &mdash; the default) or <strong>Update URLs</strong> (all pages in that folder and its subfolders get new slugs based on the new path).</li>
+        <li><strong>Edit URL</strong> &mdash; changing a folder's <code>pathSegment</code> via the Edit URL action regenerates the slugs of every descendant page based on the new path.</li>
+      </ul>
+
+      <h3>Edit URL</h3>
+      <p>Right-click any page or folder and choose <strong>Edit URL</strong> to change its URL segment independently of its display name. The modal includes two safeguards:</p>
+      <ul>
+        <li><strong>Live availability check</strong> &mdash; as you type, a debounced (300ms) server check shows a green &ldquo;Available&rdquo; or red &ldquo;URL is already in use&rdquo; indicator. Save is disabled until the segment is valid and available, so duplicate segments can&rsquo;t be saved silently.</li>
+        <li><strong>Type-to-confirm safety gate</strong> &mdash; changing a folder&rsquo;s segment (or moving a folder with children while choosing &ldquo;Update URLs&rdquo;) shows the exact number of child pages affected and requires you to type the new segment to proceed. Prevents accidental cascading URL rewrites.</li>
       </ul>
       <p>This gives you control over URL changes &mdash; useful when you want to reorganize content without breaking existing links.</p>
+
+      <div class="callout callout-warn">
+        <p><strong>Postgres migration (upgrading to v0.3.13+):</strong> the slug-history <code>reason</code> field gained an <code>'edit-url'</code> enum value, which is a schema change on Postgres. Run <code>pnpm payload migrate:create</code> then <code>pnpm payload migrate</code> before using this version (the migration adds the value via <code>ALTER TYPE ... ADD VALUE 'edit-url'</code>). MongoDB and SQLite users need no migration, and no data migration is required for any adapter &mdash; existing <code>reason: 'rename'</code> entries remain valid.</p>
+      </div>
     </div>
 
     <!-- ═══════ URL HISTORY ═══════ -->
@@ -969,14 +1046,14 @@ Page in "2024" folder with pageSegment "spring-campaign":
   <span class="hl-prop">"slug"</span>: <span class="hl-string">"marketing/about-us"</span>,
   <span class="hl-prop">"slugHistory"</span>: [
     { <span class="hl-prop">"slug"</span>: <span class="hl-string">"about-us"</span>, <span class="hl-prop">"changedAt"</span>: <span class="hl-string">"2024-01-15T..."</span>, <span class="hl-prop">"reason"</span>: <span class="hl-string">"move"</span> },
-    { <span class="hl-prop">"slug"</span>: <span class="hl-string">"company/about"</span>, <span class="hl-prop">"changedAt"</span>: <span class="hl-string">"2024-06-01T..."</span>, <span class="hl-prop">"reason"</span>: <span class="hl-string">"rename"</span> }
+    { <span class="hl-prop">"slug"</span>: <span class="hl-string">"company/about"</span>, <span class="hl-prop">"changedAt"</span>: <span class="hl-string">"2024-06-01T..."</span>, <span class="hl-prop">"reason"</span>: <span class="hl-string">"edit-url"</span> }
   ]
 }</code></pre>
 
       <p>Changes are tracked automatically when:</p>
       <ul>
         <li>A page is moved to a different folder (reason: <code>move</code>)</li>
-        <li>A parent folder is renamed (reason: <code>rename</code>)</li>
+        <li>A URL segment is changed via the Edit URL action, including cascades from a parent folder's segment change (reason: <code>edit-url</code>)</li>
         <li>URLs are regenerated via context menu (reason: <code>regenerate</code>)</li>
         <li>A previous URL is restored (reason: <code>restore</code>)</li>
       </ul>
@@ -1021,6 +1098,16 @@ Page in "2024" folder with pageSegment "spring-campaign":
 
       <h3>Restoring Previous URLs</h3>
       <p>Right-click a page in the tree view and select "URL History" to view all previous URLs with timestamps and reasons, or restore any previous URL.</p>
+
+      <h3>URL Helper Endpoints</h3>
+      <p>The Edit URL modal is backed by two read-only endpoints you can also call directly:</p>
+      <table>
+        <thead><tr><th>Endpoint</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>GET /api/page-tree/check-segment</code></td><td>Lightweight availability lookup for a proposed URL segment (powers the live "Available / in use" indicator).</td></tr>
+          <tr><td><code>GET /api/page-tree/folder-impact?folderId=X</code></td><td>Returns the count of pages whose slugs would be rewritten if the folder's URL segment changed (powers the type-to-confirm gate).</td></tr>
+        </tbody>
+      </table>
     </div>
 
     <!-- ═══════ CONFIG OPTIONS ═══════ -->
@@ -1047,6 +1134,7 @@ Page in "2024" folder with pageSegment "spring-campaign":
   adminView: {
     enabled: <span class="hl-const">true</span>,           <span class="hl-comment">// Show tree view in admin (default: true)</span>
     path: <span class="hl-string">'/page-tree'</span>,      <span class="hl-comment">// URL path for tree view (default: '/page-tree')</span>
+    navLabel: <span class="hl-string">'Page Tree'</span>,   <span class="hl-comment">// Nav group label for the tree link (default: 'Page Tree')</span>
   },
 
   <span class="hl-comment">// Custom slug builder (replaces default folderPath/pageSegment)</span>
@@ -1066,6 +1154,7 @@ Page in "2024" folder with pageSegment "spring-campaign":
           <tr><td><code>disabled</code></td><td><code>boolean</code></td><td><code>false</code></td><td>Disable hooks while keeping schema</td></tr>
           <tr><td><code>adminView.enabled</code></td><td><code>boolean</code></td><td><code>true</code></td><td>Show tree view in admin</td></tr>
           <tr><td><code>adminView.path</code></td><td><code>string</code></td><td><code>'/page-tree'</code></td><td>URL path for tree view</td></tr>
+          <tr><td><code>adminView.navLabel</code></td><td><code>string</code></td><td><code>'Page Tree'</code></td><td>Nav group label for the tree link</td></tr>
           <tr><td><code>buildSlug</code></td><td><code>function</code></td><td>&mdash;</td><td>Custom slug builder (<a href="#custom-slugs">details</a>)</td></tr>
           <tr><td><code>customizeFolderCollection</code></td><td><code>function</code></td><td>&mdash;</td><td>Customize the folders collection</td></tr>
         </tbody>
@@ -1147,7 +1236,7 @@ Page in "2024" folder with pageSegment "spring-campaign":
       </details>
 
       <div class="callout callout-info">
-        <p><strong>Error handling:</strong> If your <code>buildSlug</code> function throws an error or returns a falsy value, the plugin automatically falls back to the default <code>folderPath/pageSegment</code> behavior and logs a warning.</p>
+        <p><strong>Error handling:</strong> If your <code>buildSlug</code> function throws an error or returns a falsy value, the plugin automatically falls back to the default <code>folderPath/pageSegment</code> behavior and logs an error.</p>
       </div>
 
       <div class="callout callout-info">
@@ -1323,6 +1412,14 @@ Page in "2024" folder with pageSegment "spring-campaign":
 </button>
 
 <script>
+// ── Theme toggle (light/dark) ──
+function toggleTheme() {
+  var root = document.documentElement;
+  var next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  root.setAttribute('data-theme', next);
+  try { localStorage.setItem('pp-docs-theme', next); } catch (e) {}
+}
+
 // ── Sidebar toggle (mobile) ──
 function toggleSidebar() {
   document.getElementById('sidebar').classList.toggle('open');

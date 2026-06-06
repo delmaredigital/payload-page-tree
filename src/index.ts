@@ -61,6 +61,7 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
   const {
     enabled: adminViewEnabled = true,
     path: adminViewPath = '/page-tree',
+    navLabel = 'Page Tree',
   } = adminView
 
   // The folder field name that Payload's folders feature adds
@@ -311,7 +312,10 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
           // Add nav link after existing nav links (client component)
           afterNavLinks: [
             ...(config.admin?.components?.afterNavLinks || []),
-            '@delmaredigital/payload-page-tree/client#PageTreeNavLink',
+            {
+              path: '@delmaredigital/payload-page-tree/client#PageTreeNavLink',
+              clientProps: { navLabel, viewPath: adminViewPath },
+            },
           ],
           // Add custom view (server component)
           views: {

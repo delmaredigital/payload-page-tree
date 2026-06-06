@@ -3,14 +3,24 @@
 import Link from 'next/link'
 import { NavGroup, useConfig } from '@payloadcms/ui'
 
-export function PageTreeNavLink() {
+export interface PageTreeNavLinkProps {
+  /** Navigation group label. @default 'Page Tree' */
+  navLabel?: string
+  /** Admin-relative path of the Page Tree view. @default '/page-tree' */
+  viewPath?: string
+}
+
+export function PageTreeNavLink({
+  navLabel = 'Page Tree',
+  viewPath = '/page-tree',
+}: PageTreeNavLinkProps = {}) {
   const { config } = useConfig()
   const adminRoute = config?.routes?.admin || '/admin'
 
   return (
-    <NavGroup label="Page Tree">
+    <NavGroup label={navLabel}>
       <Link
-        href={`${adminRoute}/page-tree`}
+        href={`${adminRoute}${viewPath}`}
         className="nav__link"
         id="nav-page-tree"
       >
