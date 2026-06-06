@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.15] - 2026-06-06
+
+### Fixed
+
+- **`adminView.navLabel` and `adminView.path` are now respected**: `PageTreeNavLink` hardcoded its nav-group label ("Page Tree") and its href (`/page-tree`), so the `navLabel` option (declared in the type but never wired up) had no effect, and setting a custom `adminView.path` produced a broken sidebar link that still pointed at `/page-tree`. Both values are now passed to the nav link as `clientProps`; defaults preserve existing behavior. Follow-on to the 0.3.14 #3 custom-admin-route fix.
+
 ## [0.3.14] - 2026-04-16
 
 ### Fixed
