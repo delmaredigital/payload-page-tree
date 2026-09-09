@@ -1,6 +1,6 @@
 {
   "name": "@delmaredigital/payload-page-tree",
-  "version": "0.3.16",
+  "version": "0.3.17",
   "description": "Payload CMS plugin for folder-based hierarchical URL slugs with visual tree management",
   "type": "module",
   "license": "MIT",
