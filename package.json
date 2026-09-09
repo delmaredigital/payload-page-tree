@@ -35,7 +35,9 @@
     "dev": "swc ./src -d ./dist --strip-leading-paths --watch",
     "dev-publish": "pnpm build && pnpm version prerelease --preid=dev --no-git-tag-version && pnpm publish --registry http://localhost:4873 --no-git-checks --tag dev",
     "clean": "rm -rf dist",
-    "prepublishOnly": "pnpm build"
+    "prepublishOnly": "pnpm build",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "peerDependencies": {
     "@payloadcms/next": ">=3.0.0",
@@ -67,7 +69,8 @@
     "next": "^16.1.6",
     "payload": "^3.78.0",
     "react": "^19.2.4",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
   },
   "keywords": [
     "payload",

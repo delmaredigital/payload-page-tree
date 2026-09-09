@@ -44,6 +44,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
           },
           context: { updateSlugs, slugChangeReason: 'move' },
           req,
+          overrideAccess: false,
         })
       } else {
         // Move page - find which collection it belongs to
@@ -58,6 +59,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
               },
               context: { updateSlugs, slugChangeReason: 'move' },
               req,
+              overrideAccess: false,
             })
             break // Found and updated
           } catch {
@@ -102,6 +104,7 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
               id: item.id,
               data: { sortOrder: item.sortOrder },
               req,
+              overrideAccess: false,
             }),
           ),
         )
@@ -116,6 +119,7 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
                   id: item.id,
                   data: { sortOrder: item.sortOrder },
                   req,
+                  overrideAccess: false,
                 }),
               ),
             )
@@ -173,6 +177,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
             sortOrder: 0,
           },
           req,
+          overrideAccess: false,
         })
 
         return Response.json({
@@ -207,6 +212,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
             _status: 'draft',
           },
           req,
+          overrideAccess: false,
         })
 
         return Response.json({
@@ -233,13 +239,15 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
  * Collect all folder IDs recursively (non-blocking)
  */
 async function collectAllFolderIds(
-  payload: PayloadRequest['payload'],
+  req: PayloadRequest,
   folderId: string,
   folderSlug: string,
 ): Promise<string[]> {
   const result: string[] = [folderId]
 
-  const { docs: childFolders } = await payload.find({
+  const { docs: childFolders } = await req.payload.find({
+    user: req.user,
+    overrideAccess: false,
     collection: folderSlug as CollectionSlug,
     where: { folder: { equals: folderId } },
     limit: 0,
@@ -249,7 +257,7 @@ async function collectAllFolderIds(
   // Collect child folder IDs in parallel
   const childResults = await Promise.all(
     childFolders.map((folder: any) =>
-      collectAllFolderIds(payload, String(folder.id), folderSlug)
+      collectAllFolderIds(req, String(folder.id), folderSlug)
     )
   )
 
@@ -265,13 +273,13 @@ async function collectAllFolderIds(
  * Uses parallel operations to minimize transaction time
  */
 async function deleteFolderRecursive(
-  payload: PayloadRequest['payload'],
+  req: PayloadRequest,
   folderId: string,
   collections: string[],
   folderSlug: string,
 ): Promise<void> {
   // Step 1: Collect all folder IDs upfront (parallel recursive queries)
-  const allFolderIds = await collectAllFolderIds(payload, folderId, folderSlug)
+  const allFolderIds = await collectAllFolderIds(req, folderId, folderSlug)
 
   // Step 2: Delete all pages in all folders in parallel
   // Group by collection and delete in batches
@@ -279,8 +287,10 @@ async function deleteFolderRecursive(
 
   for (const collectionSlug of collections) {
     // Find all pages in any of the folders
-    const { docs } = await payload.find({
+    const { docs } = await req.payload.find({
       collection: collectionSlug as CollectionSlug,
+      user: req.user,
+      overrideAccess: false,
       where: { folder: { in: allFolderIds } },
       limit: 0,
       depth: 0,
@@ -293,9 +303,11 @@ async function deleteFolderRecursive(
       pageDeletePromises.push(
         Promise.all(
           batch.map((doc: any) =>
-            payload.delete({
+            req.payload.delete({
               collection: collectionSlug as CollectionSlug,
               id: doc.id,
+              user: req.user,
+              overrideAccess: false,
             })
           )
         ).then(() => {})
@@ -316,9 +328,11 @@ async function deleteFolderRecursive(
     const batch = foldersToDelete.slice(i, i + folderBatchSize)
     await Promise.all(
       batch.map((id) =>
-        payload.delete({
+        req.payload.delete({
           collection: folderSlug as CollectionSlug,
           id,
+          user: req.user,
+          overrideAccess: false,
         })
       )
     )
@@ -347,13 +361,14 @@ export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandle
 
       if (type === 'folder') {
         if (deleteChildren) {
-          await deleteFolderRecursive(req.payload, id, collections, folderSlug)
+          await deleteFolderRecursive(req, id, collections, folderSlug)
         } else {
           // Just delete the folder itself (will fail if has children due to FK constraints)
           await req.payload.delete({
             collection: folderSlug as CollectionSlug,
             id,
             req,
+            overrideAccess: false,
           })
         }
       } else {
@@ -365,6 +380,7 @@ export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandle
               collection: collectionSlug as CollectionSlug,
               id,
               req,
+              overrideAccess: false,
             })
             deleted = true
             break
@@ -450,6 +466,7 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
         collection: collection as CollectionSlug,
         id,
         req,
+        overrideAccess: false,
       })
 
       // Strip auto-generated and system fields. slugHistory is dropped too: its
@@ -509,6 +526,7 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
           _status: 'draft',
         },
         req,
+        overrideAccess: false,
       })
 
       return Response.json({ success: true, id: result.id, title: newTitle, pageSegment: newPageSegment })
@@ -541,6 +559,7 @@ export function createStatusHandler(options: TreeEndpointOptions): PayloadHandle
         id: body.id,
         data: { _status: body.status },
         req,
+        overrideAccess: false,
       })
 
       return Response.json({ success: true })
@@ -588,6 +607,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           id,
           data: { name },
           req,
+          overrideAccess: false,
         })
       } else if (collection) {
         if (!collections.includes(collection)) {
@@ -601,6 +621,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           id,
           data: { title: name },
           req,
+          overrideAccess: false,
         })
       } else {
         return Response.json(
@@ -663,6 +684,7 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
               data: {}, // Empty update triggers beforeChange hook
               context: { updateSlugs: true, slugChangeReason: 'regenerate' },
               req,
+              overrideAccess: false,
             })
             updatedCount++
           }
@@ -683,6 +705,7 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
               data: {},
               context: { updateSlugs: true, slugChangeReason: 'regenerate' },
               req,
+              overrideAccess: false,
             })
             updatedCount++
           }
@@ -744,6 +767,7 @@ export function createMigrateHandler(options: TreeEndpointOptions): PayloadHandl
             // Don't trigger slug cascade - we want to preserve existing page slugs
             context: { updateSlugs: false },
             req,
+            overrideAccess: false,
           })
           updated.push({
             id: folderDoc.id,
@@ -872,6 +896,7 @@ export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadH
         collection: collection as CollectionSlug,
         id,
         req,
+        overrideAccess: false,
       })
 
       const pageDoc = page as unknown as {
@@ -915,6 +940,7 @@ export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadH
         // Don't trigger the buildSlug hook - we're setting the slug directly
         context: { skipSlugGeneration: true },
         req,
+        overrideAccess: false,
       })
 
       return Response.json({
@@ -979,6 +1005,7 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
         id,
         depth: 0,
         req,
+        overrideAccess: false,
       })
       const rawParent = (record as { folder?: unknown }).folder
       const parentId = rawParent
@@ -1014,6 +1041,7 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
           data: { pathSegment: slugifiedSegment },
           context: { updateSlugs: true, slugChangeReason: 'edit-url' },
           req,
+          overrideAccess: false,
         })
       } else {
         await req.payload.update({
@@ -1022,6 +1050,7 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
           data: { pageSegment: slugifiedSegment },
           context: { updateSlugs: true, slugChangeReason: 'edit-url' },
           req,
+          overrideAccess: false,
         })
       }
 

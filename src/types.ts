@@ -1,3 +1,5 @@
+import type { PayloadRequest } from 'payload'
+
 /**
  * Arguments passed to the custom slug builder function
  */
@@ -28,6 +30,24 @@ export interface BuildSlugArgs {
 export type BuildSlugFn = (args: BuildSlugArgs) => string | Promise<string>
 
 export interface PageTreePluginConfig {
+  /**
+   * Gate for the `/api/page-tree/*` endpoints (move, create, delete, rename,
+   * publish, regenerate slugs, and so on).
+   *
+   * Runs before every tree endpoint. Return `false` to deny: the request gets
+   * a `401` when there is no user and a `403` otherwise. Independently of this
+   * gate, every operation the endpoints perform runs with `overrideAccess:
+   * false`, so your collection `access` rules are always enforced as well.
+   *
+   * @default ({ req }) => Boolean(req.user)
+   * @example
+   * ```ts
+   * // Admins only
+   * access: ({ req }) => req.user?.role === 'admin'
+   * ```
+   */
+  access?: PageTreeAccess
+
   /**
    * Collections to add folder-based slugs to
    * @default ['pages', 'posts']
@@ -251,3 +271,16 @@ export type ContextMenuAction =
   | 'urlHistory'
   | 'moveTo'
   | 'editUrl'
+
+/**
+ * Arguments passed to the plugin's endpoint access gate.
+ */
+export interface PageTreeAccessArgs {
+  req: PayloadRequest
+}
+
+/**
+ * Endpoint access gate for the `/api/page-tree/*` endpoints.
+ * Return `true` to allow the request. Can be async.
+ */
+export type PageTreeAccess = (args: PageTreeAccessArgs) => boolean | Promise<boolean>

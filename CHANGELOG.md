@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.17] - 2026-09-09
+
+### Security
+
+- **The `/api/page-tree/*` endpoints now require authentication and enforce collection access control.** All fourteen tree endpoints (move, reorder, create, delete, duplicate, status, rename, regenerate-slugs, migrate, redirects, restore-slug, edit-url, check-segment, folder-impact) were registered as plain Payload custom endpoints with no user check, and their handlers called the Local API with Payload's default `overrideAccess: true`. Anyone who could reach the API, including unauthenticated visitors, could create, move, rename, publish and delete pages and folders regardless of the `access` rules on those collections.
+
+  Every endpoint is now wrapped by an access gate that denies anonymous requests with `401` and denied users with `403` before any handler code runs, and every read, create, update and delete inside the handlers runs with `overrideAccess: false` as the requesting user, so collection and field access rules apply. The recursive folder delete, which previously ran outside the request entirely, now runs as the requesting user too.
+
+### Added
+
+- **`access` plugin option**: gate for the tree endpoints, `({ req }) => boolean | Promise<boolean>`. Defaults to any authenticated user. Use it to restrict the tree to a role, e.g. `access: ({ req }) => req.user?.role === 'admin'`. Exported alongside `withPageTreeAccess()` and `defaultPageTreeAccess` for anyone registering their own endpoints.
+- **Test suite** (`pnpm test`, vitest) covering the access gate and asserting every registered endpoint is guarded. Runs in CI and gates publishing.
+
+### Upgrade notes
+
+- If you had non-admin users who relied on the tree, they now need `create`/`update`/`delete` access on your page collections and the folders collection. That is the intended behavior: the tree no longer has more power than the REST API.
+
 ## [0.3.16] - 2026-06-06
 
 ### Fixed

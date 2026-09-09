@@ -1,4 +1,4 @@
-import type { Config, CollectionConfig, Field, TextField, NumberField, ArrayField } from 'payload'
+import type { Config, CollectionConfig, Field, TextField, NumberField, ArrayField, PayloadHandler } from 'payload'
 import type { PageTreePluginConfig } from './types.js'
 import { createBuildSlugHook } from './hooks/buildSlugFromFolder.js'
 import { createCascadeSlugUpdatesHook } from './hooks/cascadeSlugUpdates.js'
@@ -19,8 +19,10 @@ import {
   createCheckSegmentHandler,
   createFolderImpactHandler,
 } from './endpoints/treeOperations.js'
+import { defaultPageTreeAccess, withPageTreeAccess } from './endpoints/access.js'
 
-export type { PageTreePluginConfig, BuildSlugFn, BuildSlugArgs } from './types.js'
+export type { PageTreePluginConfig, BuildSlugFn, BuildSlugArgs, PageTreeAccess, PageTreeAccessArgs } from './types.js'
+export { defaultPageTreeAccess, withPageTreeAccess } from './endpoints/access.js'
 export type { TreeNode, FolderDocument, PageDocument, SlugHistoryEntry, SlugChangeReason } from './types.js'
 export { getFolderPath, slugify } from './utils/getFolderPath.js'
 export { buildTreeStructure } from './utils/buildTree.js'
@@ -56,6 +58,7 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
     buildSlug,
     adminView = {},
     customizeFolderCollection,
+    access = defaultPageTreeAccess,
   } = pluginOptions
 
   const {
@@ -331,77 +334,78 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
 
     // Register API endpoints for tree operations
     const endpointOptions = { collections: validCollections, folderSlug }
+    const guard = (handler: PayloadHandler) => withPageTreeAccess(handler, access)
     config.endpoints = [
       ...(config.endpoints || []),
       {
         path: '/page-tree/move',
         method: 'post',
-        handler: createMoveHandler(endpointOptions),
+        handler: guard(createMoveHandler(endpointOptions)),
       },
       {
         path: '/page-tree/reorder',
         method: 'post',
-        handler: createReorderHandler(endpointOptions),
+        handler: guard(createReorderHandler(endpointOptions)),
       },
       {
         path: '/page-tree/create',
         method: 'post',
-        handler: createCreateHandler(endpointOptions),
+        handler: guard(createCreateHandler(endpointOptions)),
       },
       {
         path: '/page-tree/delete',
         method: 'delete',
-        handler: createDeleteHandler(endpointOptions),
+        handler: guard(createDeleteHandler(endpointOptions)),
       },
       {
         path: '/page-tree/duplicate',
         method: 'post',
-        handler: createDuplicateHandler(endpointOptions),
+        handler: guard(createDuplicateHandler(endpointOptions)),
       },
       {
         path: '/page-tree/status',
         method: 'post',
-        handler: createStatusHandler(endpointOptions),
+        handler: guard(createStatusHandler(endpointOptions)),
       },
       {
         path: '/page-tree/rename',
         method: 'post',
-        handler: createRenameHandler(endpointOptions),
+        handler: guard(createRenameHandler(endpointOptions)),
       },
       {
         path: '/page-tree/regenerate-slugs',
         method: 'post',
-        handler: createRegenerateSlugsHandler(endpointOptions),
+        handler: guard(createRegenerateSlugsHandler(endpointOptions)),
       },
       {
         path: '/page-tree/migrate',
         method: 'post',
-        handler: createMigrateHandler(endpointOptions),
+        handler: guard(createMigrateHandler(endpointOptions)),
       },
       {
         path: '/page-tree/redirects',
         method: 'get',
-        handler: createRedirectsHandler(endpointOptions),
+        handler: guard(createRedirectsHandler(endpointOptions)),
       },
       {
         path: '/page-tree/restore-slug',
         method: 'post',
-        handler: createRestoreSlugHandler(endpointOptions),
+        handler: guard(createRestoreSlugHandler(endpointOptions)),
       },
       {
         path: '/page-tree/edit-url',
         method: 'post',
-        handler: createEditUrlHandler(endpointOptions),
+        handler: guard(createEditUrlHandler(endpointOptions)),
       },
       {
         path: '/page-tree/check-segment',
         method: 'get',
-        handler: createCheckSegmentHandler(endpointOptions),
+        handler: guard(createCheckSegmentHandler(endpointOptions)),
       },
       {
         path: '/page-tree/folder-impact',
         method: 'get',
-        handler: createFolderImpactHandler(endpointOptions),
+        handler: guard(createFolderImpactHandler(endpointOptions)),
       },
     ]
 
