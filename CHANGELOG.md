@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - **Duplicating legacy pages no longer fails with "The following field is invalid: slug" or copied array/block row ids**: Pages without a stored segment now use the last segment of their existing slug, and the copy goes through Payload's duplicate operation so row ids are regenerated and host `beforeDuplicate` hooks run. The copy starts with no URL history and picks a segment whose resulting slug is free, including with custom slug builders. The create endpoint uses the same slug-aware availability rule.
 
+### Upgrade notes
+
+- Duplicate now respects a collection's `disableDuplicate: true` and returns an error for it, as Payload's own duplicate does; previously the tree copied such documents anyway. With drafts enabled, the copy is made from the latest draft, and the segment and folder are read from that same version.
+
 ## [0.3.17] - 2026-09-09
 
 ### Security

@@ -39,10 +39,15 @@ function expectNoIds(value: unknown) {
 
 describe('createDuplicateHandler', () => {
   it.each([true, false])('uses Payload duplicate with minimal overrides (drafts: %s)', async (drafts) => {
-    const { req, handler, duplicate, create } = fixture(drafts)
+    const { req, handler, duplicate, create, findByID } = fixture(drafts)
     const res = await handler(req)
     expect(res.status).toBe(200)
     expect(create).not.toHaveBeenCalled()
+    // The original is read from the version Payload duplicates.
+    expect(findByID).toHaveBeenNthCalledWith(1, {
+      collection: 'pages', id: 'original', req, overrideAccess: false,
+      ...(drafts ? { draft: true } : {}),
+    })
     expect(duplicate).toHaveBeenCalledExactlyOnceWith({
       collection: 'pages', id: 'original', req, overrideAccess: false,
       ...(drafts ? { draft: true } : {}),

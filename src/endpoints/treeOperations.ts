@@ -468,10 +468,14 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
         return Response.json({ error: 'Missing required params: id, collection' }, { status: 400 })
       }
 
-      // Get the original document
+      const versions = req.payload.collections[collection]?.config.versions
+      const draftsEnabled = Boolean(versions && versions.drafts)
+
+      // Read the same version Payload duplicates (the latest draft when drafts are on).
       const original = await req.payload.findByID({
         collection: collection as CollectionSlug,
         id,
+        ...(draftsEnabled ? { draft: true } : {}),
         req,
         overrideAccess: false,
       })
@@ -504,8 +508,6 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
       const slugSegment = typeof original.slug === 'string' ? original.slug.split('/').pop() : ''
       const baseSegment =
         (typeof storedSegment === 'string' && storedSegment) || slugSegment || slugifyName(originalTitle)
-      const versions = req.payload.collections[collection]?.config.versions
-      const draftsEnabled = Boolean(versions && versions.drafts)
       const newPageSegment = await findAvailableSegment({
         payload: req.payload,
         parentId,
