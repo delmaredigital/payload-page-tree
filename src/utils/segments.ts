@@ -1,5 +1,7 @@
 import type { Payload, CollectionSlug } from 'payload'
 import { slugify } from './getFolderPath.js'
+import type { BuildSlugFn } from '../types.js'
+import { buildPageSlug } from './buildPageSlug.js'
 
 /**
  * Re-export of slugify for clarity at call sites.
@@ -19,6 +21,8 @@ interface SegmentLookupOptions {
   folderSlug: string
   /** Exclude this record from collision checks (for self-edits). */
   excludeId?: string | number
+  /** The configured page segment field; defaults to pageSegment. */
+  pageSegmentFieldName?: string
 }
 
 /**
@@ -33,7 +37,7 @@ async function getExistingSegments(opts: SegmentLookupOptions): Promise<string[]
     throw new Error('[segments] collection is required when type === "page"')
   }
 
-  const segmentField = type === 'folder' ? 'pathSegment' : 'pageSegment'
+  const segmentField = type === 'folder' ? 'pathSegment' : (opts.pageSegmentFieldName ?? 'pageSegment')
 
   const folderClause = parentId
     ? { folder: { equals: parentId } }
@@ -79,24 +83,50 @@ export async function isSegmentAvailable(
  * Used by the create and duplicate endpoints.
  */
 export async function findAvailableSegment(
-  opts: SegmentLookupOptions & { baseSegment: string },
+  opts: SegmentLookupOptions & {
+    baseSegment: string
+    segmentFieldName?: string
+    buildSlug?: BuildSlugFn
+    doc?: Record<string, unknown>
+  },
 ): Promise<string> {
   const { baseSegment } = opts
   const safeBase = baseSegment && baseSegment.length > 0 ? baseSegment : 'untitled'
 
   const existing = new Set(await getExistingSegments(opts))
 
-  if (!existing.has(safeBase.toLowerCase())) {
-    return safeBase
-  }
-
-  // Try base-2, base-3, ... up to a sanity cap
+  // Try base, base-2, base-3, ... up to a sanity cap.
   const MAX_ATTEMPTS = 1000
-  for (let i = 2; i <= MAX_ATTEMPTS; i++) {
-    const candidate = `${safeBase}-${i}`
-    if (!existing.has(candidate.toLowerCase())) {
-      return candidate
+  for (let i = 1; i <= MAX_ATTEMPTS; i++) {
+    const candidate = i === 1 ? safeBase : `${safeBase}-${i}`
+    if (existing.has(candidate.toLowerCase())) continue
+
+    if (opts.type === 'page') {
+      const collection = opts.collection as CollectionSlug
+      const slug = await buildPageSlug({
+        payload: opts.payload,
+        folderId: opts.parentId,
+        folderSlug: opts.folderSlug,
+        segmentFieldName: opts.segmentFieldName ?? 'pathSegment',
+        pageSegment: candidate,
+        doc: { ...opts.doc, [opts.pageSegmentFieldName ?? 'pageSegment']: candidate },
+        operation: 'create',
+        buildSlug: opts.buildSlug,
+      })
+      // Collision probe bypasses access filtering: hidden documents still own their unique slugs.
+      const { totalDocs } = await opts.payload.find({
+        collection,
+        where: { slug: { equals: slug } },
+        overrideAccess: true,
+        ...(opts.payload.collections[collection]?.config.trash ? { trash: true } : {}),
+        limit: 1,
+        depth: 0,
+        select: { id: true },
+      })
+      if (totalDocs > 0) continue
     }
+
+    return candidate
   }
 
   throw new Error(

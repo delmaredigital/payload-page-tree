@@ -1,7 +1,8 @@
 import type { CollectionBeforeChangeHook } from 'payload'
 import type { BuildSlugFn } from '../types.js'
 import type { SlugChangeReason, SlugHistoryEntry } from '../types.js'
-import { getFolderPath, slugify } from '../utils/getFolderPath.js'
+import { slugify } from '../utils/getFolderPath.js'
+import { buildPageSlug } from '../utils/buildPageSlug.js'
 
 interface BuildSlugOptions {
   folderSlug: string
@@ -101,30 +102,16 @@ export function createBuildSlugHook(options: BuildSlugOptions): CollectionBefore
       return data
     }
 
-    // Get the folder path
-    const folderPath = await getFolderPath(folderId, req.payload, folderSlug, segmentFieldName)
-
-    // Build the full slug
-    const defaultSlug = folderPath ? `${folderPath}/${pageSegment}` : pageSegment
-    let newSlug: string
-    if (buildSlug) {
-      try {
-        newSlug = await buildSlug({
-          folderPath,
-          pageSegment,
-          doc: data,
-          operation,
-        })
-      } catch (error) {
-        console.error('[payload-page-tree] buildSlug callback error, falling back to default:', error)
-        newSlug = defaultSlug
-      }
-      if (!newSlug) {
-        newSlug = defaultSlug
-      }
-    } else {
-      newSlug = defaultSlug
-    }
+    const newSlug = await buildPageSlug({
+      payload: req.payload,
+      folderId,
+      folderSlug,
+      segmentFieldName,
+      pageSegment,
+      doc: data,
+      operation,
+      buildSlug,
+    })
 
     // Track slug history if slug is changing on an existing document
     if (operation === 'update' && originalDoc?.slug && originalDoc.slug !== newSlug) {

@@ -1,5 +1,5 @@
 import type { PayloadHandler, CollectionSlug, Payload, PayloadRequest } from 'payload'
-import type { MovePayload, ReorderPayload, CreatePayload } from '../types.js'
+import type { MovePayload, ReorderPayload, CreatePayload, BuildSlugFn } from '../types.js'
 import { slugify } from '../utils/getFolderPath.js'
 import {
   findAvailableSegment,
@@ -11,6 +11,9 @@ import {
 interface TreeEndpointOptions {
   collections: string[]
   folderSlug: string
+  segmentFieldName?: string
+  pageSegmentFieldName?: string
+  buildSlug?: BuildSlugFn
 }
 
 /**
@@ -145,7 +148,7 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
  * Create a new page or folder
  */
 export function createCreateHandler(options: TreeEndpointOptions): PayloadHandler {
-  const { collections, folderSlug } = options
+  const { collections, folderSlug, segmentFieldName, pageSegmentFieldName = 'pageSegment', buildSlug } = options
 
   return async (req) => {
     try {
@@ -199,6 +202,10 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
           baseSegment,
           collections,
           folderSlug,
+          segmentFieldName,
+          pageSegmentFieldName,
+          buildSlug,
+          doc: { title: name, folder: parentId || null, sortOrder: 0, _status: 'draft' },
         })
 
         const result = await req.payload.create({
@@ -206,7 +213,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
           draft: true,
           data: {
             title: name, // unchanged — display field is independent of segment
-            pageSegment,
+            [pageSegmentFieldName]: pageSegment,
             folder: parentId || null,
             sortOrder: 0,
             _status: 'draft',
@@ -446,7 +453,7 @@ function generateDuplicateTitle(baseTitle: string, existingTitles: string[]): st
  * Duplicate a page
  */
 export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHandler {
-  const { collections, folderSlug } = options
+  const { collections, folderSlug, segmentFieldName, pageSegmentFieldName = 'pageSegment', buildSlug } = options
 
   return async (req) => {
     try {
@@ -469,21 +476,8 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
         overrideAccess: false,
       })
 
-      // Strip auto-generated and system fields. slugHistory is dropped too: its
-      // array rows carry generated ids that payload.create() rejects, and a fresh
-      // duplicate should start with no previous URL history.
-      const {
-        id: _id,
-        createdAt: _createdAt,
-        updatedAt: _updatedAt,
-        slug: _slug,
-        pageSegment: _pageSegment,
-        slugHistory: _slugHistory,
-        ...data
-      } = original as Record<string, unknown>
-
-      const originalTitle = (data.title as string) || 'Untitled'
-      const rawFolder = data.folder
+      const originalTitle = (original.title as string) || 'Untitled'
+      const rawFolder = original.folder
       const parentId = rawFolder
         ? typeof rawFolder === 'object' && rawFolder !== null
           ? String((rawFolder as { id: string | number }).id)
@@ -506,7 +500,12 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
       const newTitle = generateDuplicateTitle(originalTitle, existingTitles)
 
       // pageSegment uses the SHARED auto-increment rule (not "(copy)" suffix)
-      const baseSegment = slugifyName(originalTitle)
+      const storedSegment = original[pageSegmentFieldName]
+      const slugSegment = typeof original.slug === 'string' ? original.slug.split('/').pop() : ''
+      const baseSegment =
+        (typeof storedSegment === 'string' && storedSegment) || slugSegment || slugifyName(originalTitle)
+      const versions = req.payload.collections[collection]?.config.versions
+      const draftsEnabled = Boolean(versions && versions.drafts)
       const newPageSegment = await findAvailableSegment({
         payload: req.payload,
         parentId,
@@ -515,16 +514,21 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
         baseSegment,
         collections,
         folderSlug,
+        segmentFieldName,
+        pageSegmentFieldName,
+        buildSlug,
+        doc: { ...original, title: newTitle, slugHistory: [], ...(draftsEnabled ? { _status: 'draft' } : {}) },
       })
 
-      const result = await req.payload.create({
+      const result = await req.payload.duplicate({
         collection: collection as CollectionSlug,
+        id,
         data: {
-          ...data,
           title: newTitle,
-          pageSegment: newPageSegment,
-          _status: 'draft',
+          [pageSegmentFieldName]: newPageSegment,
+          slugHistory: [],
         },
+        ...(draftsEnabled ? { draft: true } : {}),
         req,
         overrideAccess: false,
       })

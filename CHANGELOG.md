@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.3.18] - 2026-11-06
+
+### Fixed
+
+- **Duplicating legacy pages no longer fails with "The following field is invalid: slug" or copied array/block row ids**: Pages without a stored segment now use the last segment of their existing slug, and the copy goes through Payload's duplicate operation so row ids are regenerated and host `beforeDuplicate` hooks run. The copy starts with no URL history and picks a segment whose resulting slug is free, including with custom slug builders. The create endpoint uses the same slug-aware availability rule.
+
 ## [0.3.17] - 2026-09-09
 
 ### Security

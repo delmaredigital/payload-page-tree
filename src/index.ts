@@ -333,7 +333,7 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
     }
 
     // Register API endpoints for tree operations
-    const endpointOptions = { collections: validCollections, folderSlug }
+    const endpointOptions = { collections: validCollections, folderSlug, segmentFieldName, pageSegmentFieldName, buildSlug }
     const guard = (handler: PayloadHandler) => withPageTreeAccess(handler, access)
     config.endpoints = [
       ...(config.endpoints || []),
