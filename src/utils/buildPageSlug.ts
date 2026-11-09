@@ -1,8 +1,9 @@
 import type { Payload } from 'payload'
 import type { BuildSlugArgs, BuildSlugFn } from '../types.js'
 import { getFolderPath } from './getFolderPath.js'
+import { trustedRead, type ReadAccessOptions } from './readAccess.js'
 
-/** Shared by slug writes and availability probes, including custom callback fallbacks. */
+/** Build stored slugs with complete ancestry, independent of the editor's READ rights. */
 export async function buildPageSlug(options: {
   payload: Payload
   folderId: string | number | null | undefined
@@ -12,9 +13,9 @@ export async function buildPageSlug(options: {
   doc: Record<string, unknown>
   operation: BuildSlugArgs['operation']
   buildSlug?: BuildSlugFn
-}): Promise<string> {
+} & ReadAccessOptions): Promise<string> {
   const { payload, folderId, folderSlug, segmentFieldName, pageSegment, doc, operation, buildSlug } = options
-  const folderPath = await getFolderPath(folderId, payload, folderSlug, segmentFieldName)
+  const folderPath = await getFolderPath(folderId, payload, folderSlug, segmentFieldName, trustedRead(options.req))
   const defaultSlug = folderPath ? `${folderPath}/${pageSegment}` : pageSegment
 
   if (buildSlug) {

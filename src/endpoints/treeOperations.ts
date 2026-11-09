@@ -1,5 +1,7 @@
-import type { PayloadHandler, CollectionSlug, Payload, PayloadRequest } from 'payload'
+import { commitTransaction, initTransaction, killTransaction } from 'payload'
+import type { PayloadHandler, CollectionSlug, PayloadRequest } from 'payload'
 import type { MovePayload, ReorderPayload, CreatePayload, BuildSlugFn } from '../types.js'
+import { trustedRead, userRead } from '../utils/readAccess.js'
 import { slugify } from '../utils/getFolderPath.js'
 import {
   findAvailableSegment,
@@ -14,6 +16,76 @@ interface TreeEndpointOptions {
   segmentFieldName?: string
   pageSegmentFieldName?: string
   buildSlug?: BuildSlugFn
+}
+
+/** User operations must be able to read their target before mutating it. */
+async function requireReadableTarget(req: PayloadRequest, collection: string, id: string | number) {
+  return req.payload.findByID({
+    collection: collection as CollectionSlug,
+    id,
+    depth: 0,
+    ...userRead(req),
+  })
+}
+
+/** Resolve page targets without confusing a hidden page with a missing one. */
+async function resolveReadablePageCollection(
+  req: PayloadRequest,
+  collections: string[],
+  id: string,
+): Promise<string> {
+  for (const collection of collections) {
+    try {
+      await requireReadableTarget(req, collection, id)
+      return collection
+    } catch (error) {
+      const status = operationErrorStatus(error)
+      if (status !== 403 && status !== 404) throw error
+      // READ filters can return 404 for an existing document. Probe only existence;
+      // never return the hidden document or fall through to a same-id sibling.
+      const { totalDocs } = await req.payload.find({
+        collection: collection as CollectionSlug,
+        where: { id: { equals: id } },
+        limit: 1,
+        depth: 0,
+        select: { id: true },
+        ...trustedRead(req),
+      })
+      if (totalDocs > 0) {
+        throw Object.assign(new Error('Cannot update an unreadable page'), { status: 403 })
+      }
+    }
+  }
+  throw Object.assign(new Error('Page not found'), { status: 404 })
+}
+
+function operationErrorStatus(error: unknown): number {
+  const status = typeof error === 'object' && error !== null && 'status' in error ? error.status : undefined
+  return status === 403 || status === 404 ? status : 500
+}
+
+/** A filtered UPDATE can also return 404 after the target passed READ. */
+async function updatePage(
+  req: PayloadRequest,
+  collection: string,
+  id: string,
+  data: Record<string, unknown>,
+  context?: { updateSlugs: boolean; slugChangeReason: 'move' },
+) {
+  try {
+    await req.payload.update({
+      collection: collection as CollectionSlug,
+      id,
+      data,
+      ...(context ? { context } : {}),
+      ...userRead(req),
+    })
+  } catch (error) {
+    if (operationErrorStatus(error) === 404) {
+      throw Object.assign(new Error('Page update denied'), { status: 403 })
+    }
+    throw error
+  }
 }
 
 /**
@@ -34,10 +106,17 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
         return Response.json({ error: 'Missing required fields: type, id' }, { status: 400 })
       }
 
-      const { type, id, newParentId, newIndex, updateSlugs = false } = body
+      const { type, id, newParentId, newIndex, updateSlugs = false, collection: targetCollection } = body
+      if (type !== 'page' && type !== 'folder') {
+        return Response.json({ error: 'type must be "page" or "folder"' }, { status: 400 })
+      }
+      if (type === 'page' && targetCollection !== undefined && !collections.includes(targetCollection)) {
+        return Response.json({ error: 'collection must name a configured page collection' }, { status: 400 })
+      }
 
       if (type === 'folder') {
         // Move folder - pass updateSlugs context to trigger cascade if requested
+        await requireReadableTarget(req, folderSlug, id)
         await req.payload.update({
           collection: folderSlug as CollectionSlug,
           id,
@@ -46,29 +125,14 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
             sortOrder: newIndex,
           },
           context: { updateSlugs, slugChangeReason: 'move' },
-          req,
-          overrideAccess: false,
+          ...userRead(req),
         })
       } else {
-        // Move page - find which collection it belongs to
-        for (const collectionSlug of collections) {
-          try {
-            await req.payload.update({
-              collection: collectionSlug as CollectionSlug,
-              id,
-              data: {
-                folder: newParentId || null,
-                sortOrder: newIndex,
-              },
-              context: { updateSlugs, slugChangeReason: 'move' },
-              req,
-              overrideAccess: false,
-            })
-            break // Found and updated
-          } catch {
-            // Not in this collection, try next
-          }
-        }
+        const collection = await resolveReadablePageCollection(req, targetCollection ? [targetCollection] : collections, id)
+        await updatePage(req, collection, id, {
+          folder: newParentId || null,
+          sortOrder: newIndex,
+        }, { updateSlugs, slugChangeReason: 'move' })
       }
 
       return Response.json({ success: true })
@@ -76,7 +140,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
       console.error('[payload-page-tree] Move error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Move failed' },
-        { status: 500 },
+        { status: operationErrorStatus(error) },
       )
     }
   }
@@ -92,11 +156,17 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
     try {
       const body = (await req.json?.()) as ReorderPayload
 
-      if (!body?.type || !body?.items) {
+      if (!body?.type || !Array.isArray(body?.items) || body.items.length === 0 || body.items.some(item => !item?.id)) {
         return Response.json({ error: 'Missing required fields: type, items' }, { status: 400 })
       }
 
-      const { type, items } = body
+      const { type, items, collection: targetCollection } = body
+      if (type !== 'page' && type !== 'folder') {
+        return Response.json({ error: 'type must be "page" or "folder"' }, { status: 400 })
+      }
+      if (type === 'page' && targetCollection !== undefined && !collections.includes(targetCollection)) {
+        return Response.json({ error: 'collection must name a configured page collection' }, { status: 400 })
+      }
 
       if (type === 'folder') {
         // Reorder folders
@@ -106,30 +176,19 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
               collection: folderSlug as CollectionSlug,
               id: item.id,
               data: { sortOrder: item.sortOrder },
-              req,
-              overrideAccess: false,
+              ...userRead(req),
             }),
           ),
         )
       } else {
-        // Reorder pages - try each collection
-        for (const collectionSlug of collections) {
-          try {
-            await Promise.all(
-              items.map((item) =>
-                req.payload.update({
-                  collection: collectionSlug as CollectionSlug,
-                  id: item.id,
-                  data: { sortOrder: item.sortOrder },
-                  req,
-                  overrideAccess: false,
-                }),
-              ),
-            )
-            break
-          } catch {
-            // Try next collection
-          }
+        // Resolve every target before writing, including batches spanning collections.
+        const targets: { collection: string; id: string; sortOrder: number }[] = []
+        for (const item of items) {
+          const collection = await resolveReadablePageCollection(req, targetCollection ? [targetCollection] : collections, item.id)
+          targets.push({ ...item, collection })
+        }
+        for (const target of targets) {
+          await updatePage(req, target.collection, target.id, { sortOrder: target.sortOrder })
         }
       }
 
@@ -138,7 +197,7 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
       console.error('[payload-page-tree] Reorder error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Reorder failed' },
-        { status: 500 },
+        { status: operationErrorStatus(error) },
       )
     }
   }
@@ -163,7 +222,10 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
 
       if (type === 'folder') {
         const pathSegment = await findAvailableSegment({
+          segmentFieldName: options.segmentFieldName,
+          pageSegmentFieldName: options.pageSegmentFieldName,
           payload: req.payload,
+          ...trustedRead(req),
           parentId: parentId || null,
           type: 'folder',
           baseSegment,
@@ -175,12 +237,11 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
           collection: folderSlug as CollectionSlug,
           data: {
             name, // unchanged — display field is independent of segment
-            pathSegment,
+            [segmentFieldName ?? 'pathSegment']: pathSegment,
             folder: parentId || null,
             sortOrder: 0,
           },
-          req,
-          overrideAccess: false,
+          ...userRead(req),
         })
 
         return Response.json({
@@ -196,6 +257,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
 
         const pageSegment = await findAvailableSegment({
           payload: req.payload,
+          ...trustedRead(req),
           parentId: parentId || null,
           type: 'page',
           collection: collectionSlug,
@@ -218,8 +280,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
             sortOrder: 0,
             _status: 'draft',
           },
-          req,
-          overrideAccess: false,
+          ...userRead(req),
         })
 
         return Response.json({
@@ -243,41 +304,9 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
 }
 
 /**
- * Collect all folder IDs recursively (non-blocking)
- */
-async function collectAllFolderIds(
-  req: PayloadRequest,
-  folderId: string,
-  folderSlug: string,
-): Promise<string[]> {
-  const result: string[] = [folderId]
-
-  const { docs: childFolders } = await req.payload.find({
-    user: req.user,
-    overrideAccess: false,
-    collection: folderSlug as CollectionSlug,
-    where: { folder: { equals: folderId } },
-    limit: 0,
-    depth: 0,
-  })
-
-  // Collect child folder IDs in parallel
-  const childResults = await Promise.all(
-    childFolders.map((folder: any) =>
-      collectAllFolderIds(req, String(folder.id), folderSlug)
-    )
-  )
-
-  for (const childIds of childResults) {
-    result.push(...childIds)
-  }
-
-  return result
-}
-
-/**
- * Delete a page or folder (optimized for performance)
- * Uses parallel operations to minimize transaction time
+ * Delete the full subtree in one transaction. Inventory is trusted so READ rules
+ * cannot silently hide descendants; each inventoried document must then pass a
+ * user READ, and every DELETE still enforces the user's DELETE rules.
  */
 async function deleteFolderRecursive(
   req: PayloadRequest,
@@ -285,64 +314,79 @@ async function deleteFolderRecursive(
   collections: string[],
   folderSlug: string,
 ): Promise<void> {
-  // Step 1: Collect all folder IDs upfront (parallel recursive queries)
-  const allFolderIds = await collectAllFolderIds(req, folderId, folderSlug)
-
-  // Step 2: Delete all pages in all folders in parallel
-  // Group by collection and delete in batches
-  const pageDeletePromises: Promise<void>[] = []
-
-  for (const collectionSlug of collections) {
-    // Find all pages in any of the folders
-    const { docs } = await req.payload.find({
-      collection: collectionSlug as CollectionSlug,
-      user: req.user,
-      overrideAccess: false,
-      where: { folder: { in: allFolderIds } },
-      limit: 0,
-      depth: 0,
-    })
-
-    // Delete pages in parallel batches of 10 to avoid overwhelming the DB
-    const batchSize = 10
-    for (let i = 0; i < docs.length; i += batchSize) {
-      const batch = docs.slice(i, i + batchSize)
-      pageDeletePromises.push(
-        Promise.all(
-          batch.map((doc: any) =>
-            req.payload.delete({
-              collection: collectionSlug as CollectionSlug,
-              id: doc.id,
-              user: req.user,
-              overrideAccess: false,
-            })
-          )
-        ).then(() => {})
-      )
-    }
+  const trashOptions = (collection: string) =>
+    req.payload.collections[collection]?.config.trash ? { trash: true } : {}
+  const ownsTransaction = await initTransaction(req)
+  if (!(await req.transactionID)) {
+    // No transaction support (e.g. MongoDB without a replica set, or transactions
+    // disabled). The READ preflight below still runs before any delete; only a
+    // DELETE denied after earlier deletes can leave a partial subtree.
+    delete req.transactionID
   }
 
-  // Wait for all page deletions to complete
-  await Promise.all(pageDeletePromises)
+  try {
+    const folders: (string | number)[] = []
+    const pages: { collection: string; id: string | number }[] = []
+    const collect = async (id: string | number): Promise<void> => {
+      folders.push(id)
+      const { docs } = await req.payload.find({
+        ...trustedRead(req),
+        collection: folderSlug as CollectionSlug,
+        ...trashOptions(folderSlug),
+        where: { folder: { equals: id } },
+        limit: 0,
+        depth: 0,
+      })
+      for (const child of docs) await collect(child.id)
+    }
+    await collect(folderId)
 
-  // Step 3: Delete folders in reverse order (deepest first to satisfy FK constraints)
-  // We reverse the array since collectAllFolderIds returns parent before children
-  const foldersToDelete = allFolderIds.reverse()
+    for (const collection of collections) {
+      const { docs } = await req.payload.find({
+        ...trustedRead(req),
+        collection: collection as CollectionSlug,
+        ...trashOptions(collection),
+        where: { folder: { in: folders } },
+        limit: 0,
+        depth: 0,
+      })
+      pages.push(...docs.map(({ id }) => ({ collection, id })))
+    }
 
-  // Delete folders in parallel batches of 5
-  const folderBatchSize = 5
-  for (let i = 0; i < foldersToDelete.length; i += folderBatchSize) {
-    const batch = foldersToDelete.slice(i, i + folderBatchSize)
-    await Promise.all(
-      batch.map((id) =>
-        req.payload.delete({
-          collection: folderSlug as CollectionSlug,
-          id,
-          user: req.user,
-          overrideAccess: false,
+    // Preflight READ on every document, including the root, before any deletion.
+    const targets = [
+      ...pages,
+      ...folders.slice().reverse().map(id => ({ collection: folderSlug, id })),
+    ]
+    for (const target of targets) {
+      try {
+        await req.payload.findByID({
+          ...target,
+          collection: target.collection as CollectionSlug,
+          ...trashOptions(target.collection),
+          ...userRead(req),
+          depth: 0,
         })
-      )
-    )
+      } catch {
+        throw Object.assign(new Error('Cannot delete a folder containing unreadable documents'), { status: 403 })
+      }
+    }
+
+    // Sequential deletes ensure no pending write survives a failure/rollback.
+    for (const target of targets) {
+      await req.payload.delete({
+        ...target,
+        collection: target.collection as CollectionSlug,
+        ...trashOptions(target.collection),
+        ...userRead(req),
+      })
+    }
+    if (ownsTransaction) await commitTransaction(req)
+  } catch (error) {
+    // Also roll back an inherited transaction: this handler returns an HTTP error
+    // instead of throwing to an outer operation that could roll it back for us.
+    await killTransaction(req)
+    throw error
   }
 }
 
@@ -361,9 +405,16 @@ export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandle
       const type = url.searchParams.get('type')
       const id = url.searchParams.get('id')
       const deleteChildren = url.searchParams.get('deleteChildren') === 'true'
+      const collection = url.searchParams.get('collection')
 
       if (!type || !id) {
         return Response.json({ error: 'Missing required params: type, id' }, { status: 400 })
+      }
+      if (type !== 'folder' && type !== 'page') {
+        return Response.json({ error: 'type must be "page" or "folder"' }, { status: 400 })
+      }
+      if (type === 'page' && (!collection || !collections.includes(collection))) {
+        return Response.json({ error: 'A configured collection is required for page deletion' }, { status: 400 })
       }
 
       if (type === 'folder') {
@@ -371,41 +422,31 @@ export function createDeleteHandler(options: TreeEndpointOptions): PayloadHandle
           await deleteFolderRecursive(req, id, collections, folderSlug)
         } else {
           // Just delete the folder itself (will fail if has children due to FK constraints)
+          await requireReadableTarget(req, folderSlug, id)
           await req.payload.delete({
             collection: folderSlug as CollectionSlug,
             id,
-            req,
-            overrideAccess: false,
+            ...userRead(req),
           })
         }
       } else {
-        // Delete page - find which collection it belongs to
-        let deleted = false
-        for (const collectionSlug of collections) {
-          try {
-            await req.payload.delete({
-              collection: collectionSlug as CollectionSlug,
-              id,
-              req,
-              overrideAccess: false,
-            })
-            deleted = true
-            break
-          } catch {
-            // Try next collection
-          }
-        }
-        if (!deleted) {
-          return Response.json({ error: 'Page not found in any collection' }, { status: 404 })
-        }
+        await requireReadableTarget(req, collection!, id)
+        await req.payload.delete({
+          collection: collection as CollectionSlug,
+          id,
+          ...userRead(req),
+        })
       }
 
       return Response.json({ success: true })
     } catch (error) {
       console.error('[payload-page-tree] Delete error:', error)
+      const status = typeof error === 'object' && error !== null && 'status' in error
+        ? error.status
+        : undefined
       return Response.json(
         { error: error instanceof Error ? error.message : 'Delete failed' },
-        { status: 500 },
+        { status: status === 403 || status === 404 ? status : 500 },
       )
     }
   }
@@ -476,8 +517,7 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
         collection: collection as CollectionSlug,
         id,
         ...(draftsEnabled ? { draft: true } : {}),
-        req,
-        overrideAccess: false,
+        ...userRead(req),
       })
 
       const originalTitle = (original.title as string) || 'Untitled'
@@ -490,6 +530,7 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
 
       // Get existing titles in the same folder so we can compute (copy N)
       const { docs: siblings } = await req.payload.find({
+        ...userRead(req),
         collection: collection as CollectionSlug,
         where: parentId
           ? { folder: { equals: parentId } }
@@ -510,6 +551,7 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
         (typeof storedSegment === 'string' && storedSegment) || slugSegment || slugifyName(originalTitle)
       const newPageSegment = await findAvailableSegment({
         payload: req.payload,
+        ...trustedRead(req),
         parentId,
         type: 'page',
         collection,
@@ -531,8 +573,7 @@ export function createDuplicateHandler(options: TreeEndpointOptions): PayloadHan
           slugHistory: [],
         },
         ...(draftsEnabled ? { draft: true } : {}),
-        req,
-        overrideAccess: false,
+        ...userRead(req),
       })
 
       return Response.json({ success: true, id: result.id, title: newTitle, pageSegment: newPageSegment })
@@ -564,8 +605,7 @@ export function createStatusHandler(options: TreeEndpointOptions): PayloadHandle
         collection: body.collection as CollectionSlug,
         id: body.id,
         data: { _status: body.status },
-        req,
-        overrideAccess: false,
+        ...userRead(req),
       })
 
       return Response.json({ success: true })
@@ -608,12 +648,12 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
       const { type, id, name, collection } = body
 
       if (type === 'folder') {
+        await requireReadableTarget(req, folderSlug, id)
         await req.payload.update({
           collection: folderSlug as CollectionSlug,
           id,
           data: { name },
-          req,
-          overrideAccess: false,
+          ...userRead(req),
         })
       } else if (collection) {
         if (!collections.includes(collection)) {
@@ -622,12 +662,12 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
             { status: 400 },
           )
         }
+        await requireReadableTarget(req, collection, id)
         await req.payload.update({
           collection: collection as CollectionSlug,
           id,
           data: { title: name },
-          req,
-          overrideAccess: false,
+          ...userRead(req),
         })
       } else {
         return Response.json(
@@ -669,12 +709,13 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
 
       if (folderId) {
         // Get all folder IDs including nested children
-        const childFolderIds = await getAllChildFolderIdsForRegenerate(folderId, req.payload, folderSlug)
+        const childFolderIds = await getAllChildFolderIdsForRegenerate(folderId, req, folderSlug)
         const allFolderIds = [folderId, ...childFolderIds]
 
         // Update pages in all affected folders
         for (const collectionSlug of collections) {
           const { docs: pages } = await req.payload.find({
+            ...userRead(req),
             collection: collectionSlug as CollectionSlug,
             where: {
               folder: { in: allFolderIds },
@@ -689,8 +730,7 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
               id: page.id,
               data: {}, // Empty update triggers beforeChange hook
               context: { updateSlugs: true, slugChangeReason: 'regenerate' },
-              req,
-              overrideAccess: false,
+              ...userRead(req),
             })
             updatedCount++
           }
@@ -699,6 +739,7 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
         // Regenerate ALL pages
         for (const collectionSlug of collections) {
           const { docs: pages } = await req.payload.find({
+            ...userRead(req),
             collection: collectionSlug as CollectionSlug,
             limit: 0,
             depth: 0,
@@ -710,8 +751,7 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
               id: page.id,
               data: {},
               context: { updateSlugs: true, slugChangeReason: 'regenerate' },
-              req,
-              overrideAccess: false,
+              ...userRead(req),
             })
             updatedCount++
           }
@@ -742,18 +782,19 @@ export function createRegenerateSlugsHandler(options: TreeEndpointOptions): Payl
  * - Does NOT update page slugs (preserves existing URLs)
  */
 export function createMigrateHandler(options: TreeEndpointOptions): PayloadHandler {
-  const { folderSlug } = options
+  const { folderSlug, segmentFieldName = 'pathSegment' } = options
 
   return async (req) => {
     try {
       // Find all folders without pathSegment
       const { docs: folders } = await req.payload.find({
+        ...userRead(req),
         collection: folderSlug as CollectionSlug,
         where: {
           or: [
-            { pathSegment: { exists: false } },
-            { pathSegment: { equals: '' } },
-            { pathSegment: { equals: null } },
+            { [segmentFieldName]: { exists: false } },
+            { [segmentFieldName]: { equals: '' } },
+            { [segmentFieldName]: { equals: null } },
           ],
         },
         limit: 0,
@@ -769,11 +810,10 @@ export function createMigrateHandler(options: TreeEndpointOptions): PayloadHandl
           await req.payload.update({
             collection: folderSlug as CollectionSlug,
             id: folderDoc.id,
-            data: { pathSegment: newPathSegment },
+            data: { [segmentFieldName]: newPathSegment },
             // Don't trigger slug cascade - we want to preserve existing page slugs
             context: { updateSlugs: false },
-            req,
-            overrideAccess: false,
+            ...userRead(req),
           })
           updated.push({
             id: folderDoc.id,
@@ -829,6 +869,7 @@ export function createRedirectsHandler(options: TreeEndpointOptions): PayloadHan
 
       // Find all pages with slug history
       const { docs: pages } = await req.payload.find({
+        ...userRead(req),
         collection: collection as CollectionSlug,
         where: {
           slugHistory: { exists: true },
@@ -875,7 +916,7 @@ export function createRedirectsHandler(options: TreeEndpointOptions): PayloadHan
  * Body: { id, collection, slug } - the page ID, collection, and slug to restore
  */
 export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadHandler {
-  const { collections } = options
+  const { collections, pageSegmentFieldName = 'pageSegment' } = options
 
   return async (req) => {
     try {
@@ -901,14 +942,12 @@ export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadH
       const page = await req.payload.findByID({
         collection: collection as CollectionSlug,
         id,
-        req,
-        overrideAccess: false,
+        ...userRead(req),
       })
 
       const pageDoc = page as unknown as {
         slug: string
         slugHistory?: Array<{ slug: string; changedAt: string; reason?: string }>
-        pageSegment?: string
       }
 
       // Check if the target slug is in the history
@@ -940,13 +979,12 @@ export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadH
         id,
         data: {
           slug: targetSlug,
-          pageSegment: newPageSegment,
+          [pageSegmentFieldName]: newPageSegment,
           slugHistory: newHistory,
         },
         // Don't trigger the buildSlug hook - we're setting the slug directly
         context: { skipSlugGeneration: true },
-        req,
-        overrideAccess: false,
+        ...userRead(req),
       })
 
       return Response.json({
@@ -969,7 +1007,7 @@ export function createRestoreSlugHandler(options: TreeEndpointOptions): PayloadH
  * Updates pageSegment (for pages) or pathSegment (for folders) and triggers slug regeneration.
  */
 export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandler {
-  const { collections, folderSlug } = options
+  const { collections, folderSlug, segmentFieldName = 'pathSegment', pageSegmentFieldName = 'pageSegment' } = options
 
   return async (req) => {
     try {
@@ -1010,8 +1048,7 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
         collection: sourceCollection as CollectionSlug,
         id,
         depth: 0,
-        req,
-        overrideAccess: false,
+        ...userRead(req),
       })
       const rawParent = (record as { folder?: unknown }).folder
       const parentId = rawParent
@@ -1023,7 +1060,10 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
       // Server-side guarantee — client should already have caught this via
       // the live availability check, but we don't trust the client.
       const available = await isSegmentAvailable({
+        segmentFieldName: options.segmentFieldName,
+        pageSegmentFieldName: options.pageSegmentFieldName,
         payload: req.payload,
+        ...trustedRead(req),
         parentId,
         type,
         segment: slugifiedSegment,
@@ -1044,19 +1084,17 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
         await req.payload.update({
           collection: folderSlug as CollectionSlug,
           id,
-          data: { pathSegment: slugifiedSegment },
+          data: { [segmentFieldName]: slugifiedSegment },
           context: { updateSlugs: true, slugChangeReason: 'edit-url' },
-          req,
-          overrideAccess: false,
+          ...userRead(req),
         })
       } else {
         await req.payload.update({
           collection: collection as CollectionSlug,
           id,
-          data: { pageSegment: slugifiedSegment },
+          data: { [pageSegmentFieldName]: slugifiedSegment },
           context: { updateSlugs: true, slugChangeReason: 'edit-url' },
-          req,
-          overrideAccess: false,
+          ...userRead(req),
         })
       }
 
@@ -1124,7 +1162,10 @@ export function createCheckSegmentHandler(options: TreeEndpointOptions): Payload
       const excludeId = excludeIdParam || undefined
 
       const available = await isSegmentAvailable({
+        segmentFieldName: options.segmentFieldName,
+        pageSegmentFieldName: options.pageSegmentFieldName,
         payload: req.payload,
+        ...trustedRead(req),
         parentId,
         type,
         segment: slugifiedSegment,
@@ -1171,6 +1212,7 @@ export function createFolderImpactHandler(options: TreeEndpointOptions): Payload
 
       const childPageCount = await countDescendantPages({
         payload: req.payload,
+        ...trustedRead(req),
         folderId,
         collections,
         folderSlug,
@@ -1192,10 +1234,11 @@ export function createFolderImpactHandler(options: TreeEndpointOptions): Payload
  */
 async function getAllChildFolderIdsForRegenerate(
   parentId: string,
-  payload: Payload,
+  req: PayloadRequest,
   folderSlug: string,
 ): Promise<string[]> {
-  const result = await payload.find({
+  const result = await req.payload.find({
+    ...userRead(req),
     collection: folderSlug as CollectionSlug,
     where: {
       folder: { equals: parentId },
@@ -1209,7 +1252,7 @@ async function getAllChildFolderIdsForRegenerate(
   // Recursively get grandchildren
   const grandchildIds: string[] = []
   for (const childId of childIds) {
-    const descendants = await getAllChildFolderIdsForRegenerate(childId, payload, folderSlug)
+    const descendants = await getAllChildFolderIdsForRegenerate(childId, req, folderSlug)
     grandchildIds.push(...descendants)
   }
 

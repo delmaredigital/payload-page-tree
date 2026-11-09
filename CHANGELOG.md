@@ -8,6 +8,26 @@ All notable changes to this project will be documented in this file.
 
 - Documentation moved to https://plugins.delmaredigital.com/docs/page-tree. The GitHub Pages site now redirects there.
 
+### Fixed
+
+- **Collection READ access on tree operations**: Reads that select user-operated documents or return data to the caller (tree listings, redirects, and migration/regeneration selections) share the requesting user's `req` and enforce collection READ rules. Hidden documents stay out of these results.
+- **Complete slug maintenance**: Stored slug ancestry, write-path collision checks, and folder cascades use trusted access while retaining `req` and its transaction. Hidden ancestors remain in stored paths, hidden slug owners remain reserved, and all descendants receive cascade updates. By design, a user with update access on a folder can use the cascade to rewrite the slug and slug history of descendant pages they cannot read or update, so URLs stay consistent. Cascade failures propagate instead of silently leaving stale URLs.
+- **Consistent URL availability and impact counts**: `check-segment` uses the same trusted sibling probe as create/edit-url, so hidden siblings are reported as unavailable before submission. `folder-impact` uses trusted descendant counts to show the full number of pages the cascade will change, including unreadable pages and pages beneath unreadable folders. These endpoints return only availability or a count, never documents.
+- **Move/reorder results reflect writes**: Missing pages return 404; unreadable pages and denied updates return 403 instead of false success. The tree sends the page collection with moves. Both endpoints accept an optional validated `collection` for page operations, preserve collection lookup for older callers, and never try another collection after an update denial. Empty reorder batches return 400.
+- **Recursive deletion includes trash**: On trash-enabled collections, recursive folder deletion includes soft-deleted pages/folders in its trusted inventory and READ preflight, and permanently deletes them along with the rest of the subtree.
+- **Atomic recursive folder deletion**: The entire subtree must pass READ checks and each deletion enforces DELETE access. A denied descendant rolls back the request transaction, preserving the subtree. Without database transactions (for example MongoDB without a replica set) the READ preflight still runs before anything is deleted, but a DELETE denied part-way cannot be rolled back.
+- **Page deletion targets the selected collection**: The tree now sends the page's collection, and the delete endpoint validates it and deletes only there. Documents with the same id in another collection are preserved. Missing pages and denied deletes retain their 404/403 responses.
+- **Folder cascade history reasons**: Descendant slug changes now retain the originating `move` or `edit-url` reason instead of `manual`. The URL History modal displays `edit-url` as "URL Edited". No new history enum value or database migration is needed.
+- **Custom segment field names**: `segmentFieldName` and `pageSegmentFieldName` now apply consistently to create, duplicate, migrate, edit/restore URL, availability checks, folder cascades, and the tree's folder URL display and confirmation text.
+- **Empty folder segments preserve ancestors**: A folder with no URL segment contributes nothing itself while descendant URLs retain the path segments of its ancestors.
+- **Historical changelog version numbers**: Corrected the March `0.4.0` and `0.4.1` headings to their actual releases, `0.3.10` and `0.3.11`, restoring descending version order.
+
+### Changed
+
+- **Delete endpoint contract (breaking for direct API callers)**: Deleting a page now requires a `collection` query parameter naming a configured page collection. Missing or invalid collections return 400. Folder deletion keeps its existing contract.
+- **Request-aware server helpers**: `getRedirectMap` and `getFolderPath` accept an optional trailing `{ req, overrideAccess }` argument. Supplying `req` enforces READ access by default; existing calls without options retain their trusted server behavior. Explicit `overrideAccess` takes precedence.
+- **`BuildSlugArgs.folderPath` type**: Corrected from `string | null` to `string`, matching the existing runtime behavior: pages at root receive `''`.
+
 ## [0.3.18] - 2026-11-06
 
 ### Fixed
@@ -120,7 +140,7 @@ Apologies for the oversight — the initial release of `0.3.13` documented this 
 
 ---
 
-## [0.4.1] - 2026-03-18
+## [0.3.11] - 2026-03-18
 
 ### Fixed
 
@@ -133,7 +153,7 @@ Apologies for the oversight — the initial release of `0.3.13` documented this 
 
 ---
 
-## [0.4.0] - 2026-03-03
+## [0.3.10] - 2026-03-03
 
 ### Added
 

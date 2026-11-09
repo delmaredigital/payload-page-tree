@@ -4,8 +4,8 @@ import type { PayloadRequest } from 'payload'
  * Arguments passed to the custom slug builder function
  */
 export interface BuildSlugArgs {
-  /** Full folder path (e.g., "appeals/2024") or null if no folder */
-  folderPath: string | null
+  /** Full folder path (e.g., "appeals/2024"), or an empty string at root */
+  folderPath: string
   /** The page's own URL segment */
   pageSegment: string
   /** The document data being saved */
@@ -36,8 +36,9 @@ export interface PageTreePluginConfig {
    *
    * Runs before every tree endpoint. Return `false` to deny: the request gets
    * a `401` when there is no user and a `403` otherwise. Independently of this
-   * gate, every operation the endpoints perform runs with `overrideAccess:
-   * false`, so your collection `access` rules are always enforced as well.
+   * gate, document reads for user operations and user writes enforce collection
+   * access rules. Slug maintenance, URL availability, and impact summaries use
+   * trusted access within the same request to keep stored paths consistent.
    *
    * @default ({ req }) => Boolean(req.user)
    * @example
@@ -226,6 +227,8 @@ export interface FolderDocument {
  */
 export interface MovePayload {
   type: 'page' | 'folder'
+  /** Optional page collection; omitted for legacy callers. */
+  collection?: string
   id: string
   newParentId: string | null
   newIndex: number
@@ -236,6 +239,8 @@ export interface MovePayload {
  */
 export interface ReorderPayload {
   type: 'page' | 'folder'
+  /** Optional page collection shared by the batch; omitted for legacy callers. */
+  collection?: string
   items: Array<{ id: string; sortOrder: number }>
 }
 

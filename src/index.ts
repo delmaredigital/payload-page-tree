@@ -28,6 +28,7 @@ export { getFolderPath, slugify } from './utils/getFolderPath.js'
 export { buildTreeStructure } from './utils/buildTree.js'
 export type { BuildTreeOptions } from './utils/buildTree.js'
 export { getRedirectMap } from './utils/redirectMap.js'
+export type { ReadAccessOptions } from './utils/readAccess.js'
 // Components are exported via /client and /rsc subpaths for proper import map resolution
 
 /**
@@ -303,6 +304,8 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
       pageTree: {
         collections: validCollections,
         folderSlug,
+        segmentFieldName,
+        pageSegmentFieldName,
       },
     }
 

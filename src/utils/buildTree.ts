@@ -2,6 +2,8 @@ import type { TreeNode, FolderDocument, PageDocument } from '../types.js'
 
 export interface BuildTreeOptions {
   collections: string[]
+  /** Folder segment field to normalize into TreeNode.pathSegment. Defaults to pathSegment. */
+  segmentFieldName?: string
 }
 
 /**
@@ -27,7 +29,7 @@ export function buildTreeStructure(
       id: treeId,
       type: 'folder',
       name: folder.name,
-      pathSegment: folder.pathSegment,
+      pathSegment: (folder as unknown as Record<string, unknown>)[options.segmentFieldName ?? 'pathSegment'] as string | undefined,
       children: [],
       pageCount: 0,
       folderId: parentRawId ? `folder-${parentRawId}` : null,

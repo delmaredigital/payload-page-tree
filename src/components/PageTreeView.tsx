@@ -1,3 +1,4 @@
+import { userRead } from '../utils/readAccess.js'
 import type { AdminViewProps, Locale } from 'payload'
 import type { FolderDocument, PageDocument } from '../types.js'
 import { PageTreeClient } from './PageTreeClient.js'
@@ -29,6 +30,7 @@ export async function PageTreeView({
   const pageTreeConfig = payload.config.custom?.pageTree as {
     collections: string[]
     folderSlug: string
+    segmentFieldName?: string
   } | undefined
 
   // Fallback to defaults if config not found (shouldn't happen if plugin is properly configured)
@@ -52,8 +54,7 @@ export async function PageTreeView({
       collection: folderSlug as 'payload-folders',
       limit: 0,
       depth: 1,
-      req,
-      overrideAccess: false, // Apply access control based on req.user
+      ...userRead(req),
     })
     const allFolders = result.docs as unknown as FolderDocument[]
 
@@ -78,8 +79,7 @@ export async function PageTreeView({
       collection: validSelectedCollection as 'pages',
       limit: 0,
       depth: 0,
-      req,
-      overrideAccess: false, // Apply access control based on req.user
+      ...userRead(req),
     })
     // Add collection slug to each page for context menu actions
     const pagesWithCollection = (result.docs as unknown as PageDocument[]).map(page => ({
@@ -95,7 +95,10 @@ export async function PageTreeView({
   }
 
   // Build tree structure
-  const treeData = buildTreeStructure(folders, allPages, { collections: [validSelectedCollection] })
+  const treeData = buildTreeStructure(folders, allPages, {
+    collections: [validSelectedCollection],
+    segmentFieldName: pageTreeConfig?.segmentFieldName,
+  })
 
   // Get visible entities for the sidebar navigation
   const visibleEntities = getVisibleEntities({ req })

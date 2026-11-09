@@ -1,4 +1,5 @@
 import type { CollectionAfterChangeHook, CollectionSlug, PayloadRequest } from 'payload'
+import { trustedRead } from '../utils/readAccess.js'
 import type { FolderDocument } from '../types.js'
 
 interface CascadeOptions {
@@ -19,7 +20,7 @@ interface CascadeOptions {
 export function createCascadeSlugUpdatesHook(
   options: CascadeOptions,
 ): CollectionAfterChangeHook<FolderDocument> {
-  const { collections, folderSlug, folderFieldName } = options
+  const { collections, folderSlug, folderFieldName, segmentFieldName } = options
 
   return async ({ doc, previousDoc, req, context }) => {
     // Prevent infinite loops - check if we're already cascading
@@ -30,7 +31,8 @@ export function createCascadeSlugUpdatesHook(
     if (!context?.updateSlugs) return doc
 
     // Check if pathSegment changed or parent folder changed
-    const segmentChanged = doc.pathSegment !== previousDoc?.pathSegment
+    const segmentChanged = (doc as unknown as Record<string, unknown>)[segmentFieldName] !==
+      (previousDoc as unknown as Record<string, unknown> | undefined)?.[segmentFieldName]
     const parentChanged = getParentId(doc.folder) !== getParentId(previousDoc?.folder)
 
     if (!segmentChanged && !parentChanged) {
@@ -56,7 +58,7 @@ export function createCascadeSlugUpdatesHook(
           },
           limit: 0, // Get all
           depth: 0,
-          req,
+          ...trustedRead(req),
         })
 
         // Re-save each page to trigger slug regeneration
@@ -65,8 +67,12 @@ export function createCascadeSlugUpdatesHook(
             collection: collectionSlug as CollectionSlug,
             id: page.id,
             data: {}, // Empty update triggers beforeChange hook
-            context: { cascading: true, updateSlugs: true }, // Prevent loops + enable regeneration
-            req,
+            context: {
+              cascading: true,
+              updateSlugs: true,
+              slugChangeReason: context?.slugChangeReason || (parentChanged ? 'move' : 'edit-url'),
+            },
+            ...trustedRead(req),
           })
         }
 
@@ -75,6 +81,7 @@ export function createCascadeSlugUpdatesHook(
           `[payload-page-tree] Error updating ${collectionSlug} slugs after folder change:`,
           error,
         )
+        throw error
       }
     }
 
@@ -99,7 +106,7 @@ async function getAllChildFolderIds(
     },
     limit: 0,
     depth: 0,
-    req,
+    ...trustedRead(req),
   })
 
   const children = result.docs as unknown as FolderDocument[]

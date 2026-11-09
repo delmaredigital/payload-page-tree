@@ -1,5 +1,6 @@
 import type { Payload, CollectionSlug } from 'payload'
 import type { SlugHistoryEntry } from '../types.js'
+import { readAccessOptions, type ReadAccessOptions } from './readAccess.js'
 
 interface RedirectEntry {
   from: string
@@ -11,6 +12,10 @@ interface RedirectEntry {
  *
  * @param payload - The Payload instance
  * @param collection - Collection slug to get redirects for (e.g., 'pages')
+ * @param options - Optional req/overrideAccess. Pass { req } for request-scoped reads:
+ * READ access defaults to enforced when req is supplied. Without req, the legacy
+ * trusted server behavior (overrideAccess: true) is preserved. Explicit
+ * overrideAccess takes precedence; false without req applies anonymous READ rules.
  * @returns Array of redirect entries mapping old URLs to new URLs
  *
  * @example
@@ -30,9 +35,11 @@ interface RedirectEntry {
 export async function getRedirectMap(
   payload: Payload,
   collection: string,
+  options: ReadAccessOptions = {},
 ): Promise<RedirectEntry[]> {
   // Find all pages with slug history
   const { docs: pages } = await payload.find({
+    ...readAccessOptions(options),
     collection: collection as CollectionSlug,
     where: {
       slugHistory: { exists: true },

@@ -2,6 +2,7 @@ import type { CollectionBeforeChangeHook } from 'payload'
 import type { BuildSlugFn } from '../types.js'
 import type { SlugChangeReason, SlugHistoryEntry } from '../types.js'
 import { slugify } from '../utils/getFolderPath.js'
+import { trustedRead } from '../utils/readAccess.js'
 import { buildPageSlug } from '../utils/buildPageSlug.js'
 
 interface BuildSlugOptions {
@@ -103,6 +104,7 @@ export function createBuildSlugHook(options: BuildSlugOptions): CollectionBefore
     }
 
     const newSlug = await buildPageSlug({
+      ...trustedRead(req),
       payload: req.payload,
       folderId,
       folderSlug,

@@ -264,6 +264,7 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
           body: JSON.stringify({
             type: node.type,
             id: getRawId(node),
+            ...(node.type === 'page' ? { collection: node.collection } : {}),
             newParentId: stripIdPrefix(parentId),
             newIndex: index,
             updateSlugs,
@@ -952,8 +953,13 @@ export function PageTreeClient({ treeData, collections, selectedCollection, admi
     async (node: TreeNodeType) => {
       const rawId = getRawId(node)
       try {
+        const params = new URLSearchParams({ type: node.type, id: rawId, deleteChildren: 'true' })
+        if (node.type === 'page') {
+          if (!node.collection) throw new Error('Collection is required to delete a page')
+          params.set('collection', node.collection)
+        }
         await apiCall(
-          `/page-tree/delete?type=${node.type}&id=${rawId}&deleteChildren=true`,
+          `/page-tree/delete?${params}`,
           { method: 'DELETE' },
         )
         // Remove node and recalculate page counts

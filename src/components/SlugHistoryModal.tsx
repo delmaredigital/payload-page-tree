@@ -34,6 +34,8 @@ function formatReason(reason?: string): string {
       return 'Restored'
     case 'manual':
       return 'Manual'
+    case 'edit-url':
+      return 'URL Edited'
     default:
       return 'Changed'
   }

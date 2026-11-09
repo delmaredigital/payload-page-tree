@@ -2,6 +2,7 @@ import type { Payload, CollectionSlug } from 'payload'
 import { slugify } from './getFolderPath.js'
 import type { BuildSlugFn } from '../types.js'
 import { buildPageSlug } from './buildPageSlug.js'
+import { trustedRead, readAccessOptions, type ReadAccessOptions } from './readAccess.js'
 
 /**
  * Re-export of slugify for clarity at call sites.
@@ -9,7 +10,7 @@ import { buildPageSlug } from './buildPageSlug.js'
  */
 export const slugifyName = slugify
 
-interface SegmentLookupOptions {
+interface SegmentLookupOptions extends ReadAccessOptions {
   payload: Payload
   parentId: string | number | null
   type: 'page' | 'folder'
@@ -23,6 +24,8 @@ interface SegmentLookupOptions {
   excludeId?: string | number
   /** The configured page segment field; defaults to pageSegment. */
   pageSegmentFieldName?: string
+  /** The configured folder segment field; defaults to pathSegment. */
+  segmentFieldName?: string
 }
 
 /**
@@ -37,7 +40,7 @@ async function getExistingSegments(opts: SegmentLookupOptions): Promise<string[]
     throw new Error('[segments] collection is required when type === "page"')
   }
 
-  const segmentField = type === 'folder' ? 'pathSegment' : (opts.pageSegmentFieldName ?? 'pageSegment')
+  const segmentField = type === 'folder' ? (opts.segmentFieldName ?? 'pathSegment') : (opts.pageSegmentFieldName ?? 'pageSegment')
 
   const folderClause = parentId
     ? { folder: { equals: parentId } }
@@ -49,6 +52,7 @@ async function getExistingSegments(opts: SegmentLookupOptions): Promise<string[]
       : folderClause
 
   const { docs } = await payload.find({
+    ...readAccessOptions(opts),
     collection: targetCollection as CollectionSlug,
     where,
     limit: 0,
@@ -85,7 +89,6 @@ export async function isSegmentAvailable(
 export async function findAvailableSegment(
   opts: SegmentLookupOptions & {
     baseSegment: string
-    segmentFieldName?: string
     buildSlug?: BuildSlugFn
     doc?: Record<string, unknown>
   },
@@ -93,7 +96,7 @@ export async function findAvailableSegment(
   const { baseSegment } = opts
   const safeBase = baseSegment && baseSegment.length > 0 ? baseSegment : 'untitled'
 
-  const existing = new Set(await getExistingSegments(opts))
+  const existing = new Set(await getExistingSegments({ ...opts, ...trustedRead(opts.req) }))
 
   // Try base, base-2, base-3, ... up to a sanity cap.
   const MAX_ATTEMPTS = 1000
@@ -104,6 +107,7 @@ export async function findAvailableSegment(
     if (opts.type === 'page') {
       const collection = opts.collection as CollectionSlug
       const slug = await buildPageSlug({
+        ...trustedRead(opts.req),
         payload: opts.payload,
         folderId: opts.parentId,
         folderSlug: opts.folderSlug,
@@ -113,11 +117,11 @@ export async function findAvailableSegment(
         operation: 'create',
         buildSlug: opts.buildSlug,
       })
-      // Collision probe bypasses access filtering: hidden documents still own their unique slugs.
+      // Stored slugs must reserve hidden and trashed owners too.
       const { totalDocs } = await opts.payload.find({
         collection,
         where: { slug: { equals: slug } },
-        overrideAccess: true,
+        ...trustedRead(opts.req),
         ...(opts.payload.collections[collection]?.config.trash ? { trash: true } : {}),
         limit: 1,
         depth: 0,
@@ -150,15 +154,16 @@ export async function countDescendantPages(opts: {
   folderId: string | number
   collections: string[]
   folderSlug: string
-}): Promise<number> {
+} & ReadAccessOptions): Promise<number> {
   const { payload, folderId, collections, folderSlug } = opts
 
   // Recursively gather all child folder IDs (this folder + all descendants)
-  const allFolderIds = await collectFolderAndDescendants(payload, folderId, folderSlug)
+  const allFolderIds = await collectFolderAndDescendants(payload, folderId, folderSlug, opts)
 
   let total = 0
   for (const collectionSlug of collections) {
     const { totalDocs } = await payload.find({
+      ...readAccessOptions(opts),
       collection: collectionSlug as CollectionSlug,
       where: {
         folder: { in: allFolderIds },
@@ -179,10 +184,12 @@ async function collectFolderAndDescendants(
   payload: Payload,
   folderId: string | number,
   folderSlug: string,
+  options: ReadAccessOptions,
 ): Promise<(string | number)[]> {
   const result: (string | number)[] = [folderId]
 
   const { docs } = await payload.find({
+    ...readAccessOptions(options),
     collection: folderSlug as CollectionSlug,
     where: { folder: { equals: folderId } },
     limit: 0,
@@ -191,7 +198,7 @@ async function collectFolderAndDescendants(
 
   for (const child of docs) {
     const childId = (child as { id: string | number }).id
-    const descendants = await collectFolderAndDescendants(payload, childId, folderSlug)
+    const descendants = await collectFolderAndDescendants(payload, childId, folderSlug, options)
     result.push(...descendants)
   }
 
