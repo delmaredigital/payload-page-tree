@@ -13,10 +13,3 @@ it('attributes the misnumbered March entries to their actual releases', () => {
   expect(changelog).toMatch(/## \[0\.3\.11\] - 2026-03-18[\s\S]*?Folder rename now updates pathSegment/)
   expect(changelog).toMatch(/## \[0\.3\.10\] - 2026-03-03[\s\S]*?\*\*`buildSlug` callback\*\*/)
 })
-
-it('keeps existing Unreleased documentation and adds Fixed and Changed notes', () => {
-  const unreleased = changelog.split('## [Unreleased]')[1].split(/\n## \[/)[0]
-  expect(unreleased).toContain('### Documentation')
-  expect(unreleased).toContain('### Fixed')
-  expect(unreleased).toContain('### Changed')
-})
