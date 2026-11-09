@@ -37,6 +37,7 @@ describe('non-default segment fields through registered endpoints and hooks', ()
 
   it('edits a folder URL, cascades through an empty middle folder, and records URL Edited history', async () => {
     const f = treeFixture(true)
+    delete f.rows.pages[1].hidden
     expect((await f.call('edit-url', { type: 'folder', id: 'root', segment: 'Renamed URL' })).status).toBe(200)
     expect(f.rows['payload-folders'][0].folderSegment).toBe('renamed-url')
     expect(f.rows.pages[0]).toMatchObject({ slug: 'renamed-url/advanced/welcome', slugHistory: [

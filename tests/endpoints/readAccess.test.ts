@@ -18,6 +18,7 @@ describe('request-scoped collection READ access', () => {
     ['folder-impact', undefined, 'folderId=root'],
   ] as const)('%s preserves the request and separates user reads from slug maintenance (%s %s)', async (path, body, query) => {
     const f = treeFixture()
+    if (path === 'edit-url' && body?.type === 'folder') delete f.rows.pages[1].hidden
     const res = await f.call(path, body, query)
     expect(res.status).toBe(200)
     const reads = [...f.find.mock.calls, ...f.findByID.mock.calls]
@@ -39,7 +40,9 @@ describe('request-scoped collection READ access', () => {
     } else if (path === 'edit-url') {
       expectAccess(f.find.mock.calls, true) // write collision checks and cascade
       expectAccess(f.findByID.mock.calls.slice(0, 1), false) // source document
-      expectAccess(f.findByID.mock.calls.slice(1), true) // slug ancestors
+      for (const [opts] of f.findByID.mock.calls.slice(1)) {
+        expect(opts.overrideAccess).toBe(opts.collection === 'payload-folders') // ancestors trusted; cascade preflight checked
+      }
     } else {
       expectAccess(f.find.mock.calls, false) // selections/returned data
       expectAccess(f.findByID.mock.calls, path === 'regenerate-slugs')
@@ -101,6 +104,10 @@ describe('write-path collision checks', () => {
     for (const [opts] of f.find.mock.calls) {
       expect(opts).toMatchObject({ req: f.req, overrideAccess: true })
     }
+    expect((await f.call('edit-url', { type: 'folder', id: 'root', segment: 'changed' })).status).toBe(403)
+    expect(f.persistedUpdates).not.toHaveBeenCalled()
+    // The trusted count is the number of pages the editor must be allowed to edit.
+    for (const page of [...f.rows.pages, ...f.rows.posts]) delete page.hidden
     expect((await f.call('edit-url', { type: 'folder', id: 'root', segment: 'changed' })).status).toBe(200)
     const rewrittenPages = f.update.mock.calls.filter(([opts]) => opts.collection !== 'payload-folders')
     expect(rewrittenPages).toHaveLength(4)

@@ -32,7 +32,7 @@ describe.each(['move', 'reorder'] as const)('%s page results', path => {
     const f = treeFixture()
     const response = await f.call(path, body('missing', collection))
     expect(response.status).toBe(404)
-    expect(await response.json()).not.toHaveProperty('success')
+    expect(await response.json()).toEqual({ error: 'Page not found' })
     expect(f.update).not.toHaveBeenCalled()
   })
 
@@ -42,22 +42,36 @@ describe.each(['move', 'reorder'] as const)('%s page results', path => {
     expect((await f.call(path, body('1', 'posts'))).status).toBe(404)
     expect(f.update).not.toHaveBeenCalled()
     expect(f.findByID.mock.calls.every(([opts]) => opts.collection === 'posts')).toBe(true)
+    expect(f.find).not.toHaveBeenCalled()
   })
 
-  it.each([undefined, 'pages'])('returns 403 for an unreadable page, including filtered READ 404 (%s)', async collection => {
+  it.each([undefined, 'pages'])('returns the same 404 as a missing page for filtered READ (%s)', async collection => {
     const f = treeFixture()
     f.rows.pages[0].hidden = true
     const before = structuredClone(f.rows)
-    expect((await f.call(path, body('1', collection))).status).toBe(403)
+    const response = await f.call(path, body('1', collection))
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Page not found' })
     expect(f.update).not.toHaveBeenCalled()
     expect(f.rows).toEqual(before)
-    expect(f.find).toHaveBeenCalledWith(expect.objectContaining({ req: f.req, overrideAccess: true, select: { id: true } }))
+    if (collection) {
+      expect(f.find).not.toHaveBeenCalled()
+    } else {
+      expect(f.find).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        collection: 'pages', req: f.req, overrideAccess: true, select: { id: true },
+      }))
+    }
+    expect(f.findByID.mock.calls.every(([opts]) => opts.collection === 'pages')).toBe(true)
   })
 
-  it('returns 403 for a collection READ denial', async () => {
+  it.each([undefined, 'pages'])('returns the same 404 for a collection READ denial (%s)', async collection => {
     const f = treeFixture()
     f.findByID.mockRejectedValueOnce(Object.assign(new Error('Forbidden'), { status: 403 }))
-    expect((await f.call(path, body('1', 'pages'))).status).toBe(403)
+    const response = await f.call(path, body('1', collection))
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Page not found' })
+    if (collection) expect(f.find).not.toHaveBeenCalled()
+    expect(f.findByID.mock.calls.every(([opts]) => opts.collection === 'pages')).toBe(true)
     expect(f.update).not.toHaveBeenCalled()
   })
 
@@ -90,7 +104,8 @@ describe.each(['move', 'reorder'] as const)('%s page results', path => {
 it('preflights every reorder target before any write', async () => {
   const f = treeFixture()
   const response = await f.call('reorder', { type: 'page', items: [{ id: '1', sortOrder: 1 }, { id: 'hidden-page', sortOrder: 2 }] })
-  expect(response.status).toBe(403)
+  expect(response.status).toBe(404)
+  expect(await response.json()).toEqual({ error: 'Page not found' })
   expect(f.update).not.toHaveBeenCalled()
 })
 

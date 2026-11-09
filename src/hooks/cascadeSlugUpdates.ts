@@ -1,5 +1,6 @@
-import type { CollectionAfterChangeHook, CollectionSlug, PayloadRequest } from 'payload'
-import { trustedRead } from '../utils/readAccess.js'
+import { APIError } from 'payload'
+import type { CollectionAfterChangeHook, CollectionBeforeChangeHook, CollectionSlug, PayloadRequest } from 'payload'
+import { cascadeAccess, trustedRead, userRead } from '../utils/readAccess.js'
 import type { FolderDocument } from '../types.js'
 
 interface CascadeOptions {
@@ -7,6 +8,49 @@ interface CascadeOptions {
   folderSlug: string
   segmentFieldName: string
   folderFieldName: string
+}
+
+type CascadeTarget = { collection: CollectionSlug; id: string | number }
+
+async function inventoryPages(id: string | number, req: PayloadRequest, options: CascadeOptions): Promise<CascadeTarget[]> {
+  const childFolderIds = await getAllChildFolderIds(id, req, options.folderSlug)
+  const targets: CascadeTarget[] = []
+  for (const collection of options.collections) {
+    const { docs } = await req.payload.find({
+      collection: collection as CollectionSlug,
+      where: { [options.folderFieldName]: { in: [id, ...childFolderIds] } },
+      limit: 0,
+      depth: 0,
+      ...trustedRead(req),
+    })
+    targets.push(...docs.map(page => ({ collection: collection as CollectionSlug, id: page.id })))
+  }
+  return targets
+}
+
+async function preflightPages(targets: CascadeTarget[], req: PayloadRequest) {
+  if (!req.user) return
+  for (const target of targets) {
+    try {
+      await req.payload.findByID({ ...target, depth: 0, ...userRead(req) })
+    } catch (error) {
+      const status = (error as { status?: number } | null)?.status
+      if (status !== 403 && status !== 404) throw error
+      throw new APIError('Cannot change the URL of a folder containing pages you cannot edit', 403)
+    }
+  }
+}
+
+/** Check READ before the folder itself is written, including without transactions. */
+export function createCascadeSlugPreflightHook(options: CascadeOptions): CollectionBeforeChangeHook {
+  return async ({ data, originalDoc, req, context }) => {
+    if (!req.user || context?.cascading || !context?.updateSlugs || !originalDoc) return data
+    const doc = { ...originalDoc, ...data }
+    if (doc[options.segmentFieldName] === originalDoc[options.segmentFieldName] &&
+      getParentId(doc.folder) === getParentId(originalDoc.folder)) return data
+    await preflightPages(await inventoryPages(originalDoc.id, req, options), req)
+    return data
+  }
 }
 
 /**
@@ -20,7 +64,7 @@ interface CascadeOptions {
 export function createCascadeSlugUpdatesHook(
   options: CascadeOptions,
 ): CollectionAfterChangeHook<FolderDocument> {
-  const { collections, folderSlug, folderFieldName, segmentFieldName } = options
+  const { segmentFieldName } = options
 
   return async ({ doc, previousDoc, req, context }) => {
     // Prevent infinite loops - check if we're already cascading
@@ -39,50 +83,22 @@ export function createCascadeSlugUpdatesHook(
       return doc
     }
 
-    // Find all folders that are children of this folder (at any depth)
-    const childFolderIds = await getAllChildFolderIds(doc.id, req, folderSlug)
-    const allAffectedFolderIds = [doc.id, ...childFolderIds]
-
-    // Update all pages in affected folders
-    for (const collectionSlug of collections) {
-      try {
-        // Find all pages in any of the affected folders.
-        // Pass `req` so this runs in the same transaction as the folder update;
-        // otherwise Postgres deadlocks against the row lock the outer txn holds.
-        const { docs: pages } = await req.payload.find({
-          collection: collectionSlug as CollectionSlug,
-          where: {
-            [folderFieldName]: {
-              in: allAffectedFolderIds,
-            },
-          },
-          limit: 0, // Get all
-          depth: 0,
-          ...trustedRead(req),
-        })
-
-        // Re-save each page to trigger slug regeneration
-        for (const page of pages) {
-          await req.payload.update({
-            collection: collectionSlug as CollectionSlug,
-            id: page.id,
-            data: {}, // Empty update triggers beforeChange hook
-            context: {
-              cascading: true,
-              updateSlugs: true,
-              slugChangeReason: context?.slugChangeReason || (parentChanged ? 'move' : 'edit-url'),
-            },
-            ...trustedRead(req),
-          })
-        }
-
-      } catch (error) {
-        console.error(
-          `[payload-page-tree] Error updating ${collectionSlug} slugs after folder change:`,
-          error,
-        )
-        throw error
-      }
+    // Inventory every collection before writing. Recheck READ for the actual
+    // targets even if another hook changed the subtree since beforeChange.
+    const targets = await inventoryPages(doc.id, req, options)
+    await preflightPages(targets, req)
+    for (const target of targets) {
+      // Keep the original request so failures roll back the folder transaction.
+      await req.payload.update({
+        ...target,
+        data: {}, // Empty update triggers beforeChange hook
+        context: {
+          cascading: true,
+          updateSlugs: true,
+          slugChangeReason: context?.slugChangeReason || (parentChanged ? 'move' : 'edit-url'),
+        },
+        ...cascadeAccess(req),
+      })
     }
 
     return doc

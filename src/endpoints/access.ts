@@ -5,8 +5,8 @@ import type { PageTreeAccess } from '../types.js'
  * Default endpoint gate: any authenticated Payload user.
  *
  * Document reads for user operations and user writes enforce collection access
- * rules. Slug maintenance, URL availability, and impact summaries use trusted
- * access in the same request. This gate decides who may reach the endpoints.
+ * rules, including cascade writes. Slug ancestry, cascade inventories, URL
+ * availability, and impact summaries use trusted access in the same request. This gate decides who may reach the endpoints.
  */
 export const defaultPageTreeAccess: PageTreeAccess = ({ req }) => Boolean(req.user)
 

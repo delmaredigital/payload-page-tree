@@ -28,23 +28,20 @@ async function requireReadableTarget(req: PayloadRequest, collection: string, id
   })
 }
 
-/** Resolve page targets without confusing a hidden page with a missing one. */
+/** Hidden and missing page targets share one response. */
 async function resolveReadablePageCollection(
   req: PayloadRequest,
   collections: string[],
   id: string,
+  targetCollection?: string,
 ): Promise<string> {
-  for (const collection of collections) {
-    try {
-      await requireReadableTarget(req, collection, id)
-      return collection
-    } catch (error) {
-      const status = operationErrorStatus(error)
-      if (status !== 403 && status !== 404) throw error
-      // READ filters can return 404 for an existing document. Probe only existence;
-      // never return the hidden document or fall through to a same-id sibling.
+  let collection = targetCollection
+  if (!collection) {
+    // Legacy lookup selects the first existing ID, regardless of READ rights.
+    // Never fall through from a hidden document to a same-id page elsewhere.
+    for (const candidate of collections) {
       const { totalDocs } = await req.payload.find({
-        collection: collection as CollectionSlug,
+        collection: candidate as CollectionSlug,
         where: { id: { equals: id } },
         limit: 1,
         depth: 0,
@@ -52,8 +49,18 @@ async function resolveReadablePageCollection(
         ...trustedRead(req),
       })
       if (totalDocs > 0) {
-        throw Object.assign(new Error('Cannot update an unreadable page'), { status: 403 })
+        collection = candidate
+        break
       }
+    }
+  }
+  if (collection) {
+    try {
+      await requireReadableTarget(req, collection, id)
+      return collection
+    } catch (error) {
+      const status = operationErrorStatus(error)
+      if (status !== 403 && status !== 404) throw error
     }
   }
   throw Object.assign(new Error('Page not found'), { status: 404 })
@@ -128,7 +135,7 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
           ...userRead(req),
         })
       } else {
-        const collection = await resolveReadablePageCollection(req, targetCollection ? [targetCollection] : collections, id)
+        const collection = await resolveReadablePageCollection(req, collections, id, targetCollection)
         await updatePage(req, collection, id, {
           folder: newParentId || null,
           sortOrder: newIndex,
@@ -184,7 +191,7 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
         // Resolve every target before writing, including batches spanning collections.
         const targets: { collection: string; id: string; sortOrder: number }[] = []
         for (const item of items) {
-          const collection = await resolveReadablePageCollection(req, targetCollection ? [targetCollection] : collections, item.id)
+          const collection = await resolveReadablePageCollection(req, collections, item.id, targetCollection)
           targets.push({ ...item, collection })
         }
         for (const target of targets) {
@@ -1103,7 +1110,7 @@ export function createEditUrlHandler(options: TreeEndpointOptions): PayloadHandl
       console.error('[payload-page-tree] Edit URL error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Edit URL failed' },
-        { status: 500 },
+        { status: operationErrorStatus(error) },
       )
     }
   }

@@ -1,7 +1,7 @@
 import type { Config, CollectionConfig, Field, TextField, NumberField, ArrayField, PayloadHandler } from 'payload'
 import type { PageTreePluginConfig } from './types.js'
 import { createBuildSlugHook } from './hooks/buildSlugFromFolder.js'
-import { createCascadeSlugUpdatesHook } from './hooks/cascadeSlugUpdates.js'
+import { createCascadeSlugPreflightHook, createCascadeSlugUpdatesHook } from './hooks/cascadeSlugUpdates.js'
 import { slugify } from './utils/getFolderPath.js'
 import {
   createMoveHandler,
@@ -155,6 +155,15 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
             fields: [...existingFields, pathSegmentField, sortOrderField],
             hooks: {
               ...collection.hooks,
+              beforeChange: [
+                ...(collection.hooks?.beforeChange || []),
+                ...(cascadeHook ? [createCascadeSlugPreflightHook({
+                  collections: validCollections,
+                  folderSlug,
+                  segmentFieldName,
+                  folderFieldName,
+                })] : []),
+              ],
               afterChange: [
                 ...(collection.hooks?.afterChange || []),
                 ...(cascadeHook ? [cascadeHook] : []),

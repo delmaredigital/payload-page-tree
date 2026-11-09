@@ -1,4 +1,5 @@
 import { vi } from 'vitest'
+import { commitTransaction, initTransaction, killTransaction } from 'payload'
 import type { Config, PayloadRequest } from 'payload'
 import { pageTreePlugin } from '../../src/index.js'
 
@@ -48,7 +49,19 @@ export function treeFixture(customFields = false) {
     if (!doc) throw Object.assign(new Error('Not found'), { status: 404 })
     return doc
   })
+  const persistedUpdates = vi.fn()
   const update = vi.fn(async (opts: any) => {
+    try {
+      const shouldCommit = await initTransaction(opts.req)
+      const result = await performUpdate(opts)
+      if (shouldCommit) await commitTransaction(opts.req)
+      return result
+    } catch (error) {
+      await killTransaction(opts.req)
+      throw error
+    }
+  })
+  async function performUpdate(opts: any) {
     const doc = rows[opts.collection].find(row => row.id === opts.id)!
     if (!doc) throw Object.assign(new Error('Not found'), { status: 404 })
     if (opts.overrideAccess === false && doc.updateDenied) {
@@ -61,12 +74,18 @@ export function treeFixture(customFields = false) {
       const hook = config.collections!.find(c => c.slug === opts.collection)!.hooks!.beforeChange![0]
       data = await hook({ data, req: opts.req, operation: 'update', originalDoc: previousDoc, context } as any)
     }
+    if (opts.collection === options.folderSlug) {
+      for (const hook of folderConfig.hooks.beforeChange) {
+        data = await hook({ data, originalDoc: previousDoc, req: opts.req, operation: 'update', context })
+      }
+    }
+    persistedUpdates({ collection: opts.collection, id: opts.id, data })
     Object.assign(doc, data)
     if (opts.collection === options.folderSlug) {
       await folderConfig.hooks.afterChange[0]({ doc, previousDoc, req: opts.req, context })
     }
     return doc
-  })
+  }
   const create = vi.fn(async (opts: any) => {
     let data = { ...opts.data }
     if (opts.collection !== options.folderSlug) {
@@ -106,5 +125,5 @@ export function treeFixture(customFields = false) {
     req.json = async () => body
     return config.endpoints!.find(e => e.path === `/page-tree/${path}`)!.handler(req)
   }
-  return { options, config, folderConfig, rows, req, payload, find, findByID, update, create, remove, duplicate, call }
+  return { options, config, folderConfig, rows, req, payload, find, findByID, update, create, remove, duplicate, persistedUpdates, call }
 }

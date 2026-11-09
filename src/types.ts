@@ -37,8 +37,10 @@ export interface PageTreePluginConfig {
    * Runs before every tree endpoint. Return `false` to deny: the request gets
    * a `401` when there is no user and a `403` otherwise. Independently of this
    * gate, document reads for user operations and user writes enforce collection
-   * access rules. Slug maintenance, URL availability, and impact summaries use
-   * trusted access within the same request to keep stored paths consistent.
+   * access rules, including cascade writes. Slug ancestry, cascade inventories,
+   * URL availability, and impact summaries use trusted access within the same
+   * request to keep stored paths consistent. Cascades preflight descendant READ
+   * access; server calls without a user retain trusted cascade writes.
    *
    * @default ({ req }) => Boolean(req.user)
    * @example

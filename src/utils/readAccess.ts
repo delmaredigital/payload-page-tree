@@ -18,6 +18,12 @@ export function trustedRead(req?: PayloadRequest) {
   return { req, overrideAccess: true as const }
 }
 
+/** Cascade writes follow the editor's rights while retaining the request transaction. */
+export function cascadeAccess(req: PayloadRequest) {
+  // Seeds and other server/Local API calls without a user retain trusted access.
+  return req.user ? userRead(req) : trustedRead(req)
+}
+
 export function readAccessOptions(options: ReadAccessOptions = {}) {
   return (options.overrideAccess ?? !options.req) ? trustedRead(options.req) : userRead(options.req)
 }
