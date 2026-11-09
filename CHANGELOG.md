@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Documentation
+
+- Documentation moved to https://plugins.delmaredigital.com/docs/page-tree. The GitHub Pages site now redirects there.
+
 ## [0.3.18] - 2026-11-06
 
 ### Fixed

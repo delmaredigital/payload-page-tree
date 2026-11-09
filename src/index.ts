@@ -87,7 +87,7 @@ export function pageTreePlugin(pluginOptions: PageTreePluginConfig = {}) {
       console.warn(
         `[payload-page-tree] Collections not found: ${missingCollections.join(', ')}. ` +
         `If using payload-puck with autoGenerateCollection, ensure createPuckPlugin() runs BEFORE pageTreePlugin(). ` +
-        `See: https://github.com/delmaredigital/payload-page-tree#plugin-order`
+        `See: https://plugins.delmaredigital.com/docs/page-tree/guides/plugin-order`
       )
     }
 

@@ -10,11 +10,9 @@ A Payload CMS plugin that extends the built-in folders feature to auto-generate 
   <a href="https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fdelmaredigital%2Fdd-starter&project-name=my-payload-site&build-command=pnpm%20run%20ci&env=PAYLOAD_SECRET,BETTER_AUTH_SECRET&stores=%5B%7B%22type%22%3A%22integration%22%2C%22protocol%22%3A%22storage%22%2C%22productSlug%22%3A%22neon%22%2C%22integrationSlug%22%3A%22neon%22%7D%2C%7B%22type%22%3A%22blob%22%7D%5D"><img src="https://vercel.com/button" alt="Deploy with Vercel" height="32"></a>
 </p>
 
-## Documentation
-
-**[Full documentation &rarr;](https://delmaredigital.github.io/payload-page-tree/)**
-
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/delmaredigital/payload-page-tree)
+
+**Documentation:** [plugins.delmaredigital.com/docs/page-tree](https://plugins.delmaredigital.com/docs/page-tree) · [Overview](https://plugins.delmaredigital.com/page-tree)
 
 ## Installation
 
@@ -85,8 +83,6 @@ export default async function Page({ params }: { params: { slug: string[] } }) {
 That's it! The plugin adds `folder`, `pageSegment`, `sortOrder`, and `slugHistory` fields automatically, and registers the tree view at `/admin/page-tree`.
 
 ---
-
-For configuration options, tree view features, URL history, organization scoping, extensibility, and more, see the **[full documentation](https://delmaredigital.github.io/payload-page-tree/)**.
 
 ## Access control
 

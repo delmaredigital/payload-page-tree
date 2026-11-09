@@ -83,7 +83,9 @@
     "url",
     "pages",
     "cms",
-    "tree-view"
+    "tree-view",
+    "nested-urls",
+    "nextjs"
   ],
   "engines": {
     "node": "^18.20.2 || >=20.9.0"
@@ -96,5 +98,5 @@
   "bugs": {
     "url": "https://github.com/delmaredigital/payload-page-tree/issues"
   },
-  "homepage": "https://delmaredigital.com/developers"
+  "homepage": "https://plugins.delmaredigital.com/page-tree"
 }
