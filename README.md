@@ -89,7 +89,7 @@ That's it! The plugin adds `folder`, `pageSegment`, `sortOrder`, and `slugHistor
 The tree view calls fourteen endpoints under `/api/page-tree/*`. Two layers decide who may use them:
 
 1. **Endpoint gate** — the `access` option runs before every endpoint. By default it requires an authenticated Payload user (`401` without a user, `403` when denied).
-2. **Collection access rules** — every operation the endpoints perform runs with `overrideAccess: false` as the requesting user, so the `access` rules on your page and folder collections are always enforced.
+2. **Collection access rules** — reads and writes on the documents a user operates on run with `overrideAccess: false` as the requesting user, so the `access` rules on your page and folder collections are enforced. URL maintenance (slug ancestry, collision checks, cascade inventories) reads with trusted access, but only beneath folders the user can read. See [access control](https://plugins.delmaredigital.com/docs/page-tree/access-control) for the details.
 
 ```typescript
 pageTreePlugin({

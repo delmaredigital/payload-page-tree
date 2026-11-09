@@ -62,7 +62,7 @@ export function treeFixture(customFields = false) {
     }
   })
   async function performUpdate(opts: any) {
-    const doc = rows[opts.collection].find(row => row.id === opts.id)!
+    const doc = rows[opts.collection].find(row => row.id === opts.id && (!row.deletedAt || opts.trash === true))!
     if (!doc) throw Object.assign(new Error('Not found'), { status: 404 })
     if (opts.overrideAccess === false && doc.updateDenied) {
       throw Object.assign(new Error('Update denied'), { status: doc.updateDenied })

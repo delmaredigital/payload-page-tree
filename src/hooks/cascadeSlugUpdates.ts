@@ -12,6 +12,11 @@ interface CascadeOptions {
 
 type CascadeTarget = { collection: CollectionSlug; id: string | number }
 
+/** Trashed documents keep their folder, so restoring them must not bring back a stale URL. */
+function trashOptions(req: PayloadRequest, collection: string) {
+  return req.payload.collections?.[collection as CollectionSlug]?.config.trash ? { trash: true } : {}
+}
+
 async function inventoryPages(id: string | number, req: PayloadRequest, options: CascadeOptions): Promise<CascadeTarget[]> {
   const childFolderIds = await getAllChildFolderIds(id, req, options.folderSlug)
   const targets: CascadeTarget[] = []
@@ -21,6 +26,7 @@ async function inventoryPages(id: string | number, req: PayloadRequest, options:
       where: { [options.folderFieldName]: { in: [id, ...childFolderIds] } },
       limit: 0,
       depth: 0,
+      ...trashOptions(req, collection),
       ...trustedRead(req),
     })
     targets.push(...docs.map(page => ({ collection: collection as CollectionSlug, id: page.id })))
@@ -32,7 +38,7 @@ async function preflightPages(targets: CascadeTarget[], req: PayloadRequest) {
   if (!req.user) return
   for (const target of targets) {
     try {
-      await req.payload.findByID({ ...target, depth: 0, ...userRead(req) })
+      await req.payload.findByID({ ...target, depth: 0, ...trashOptions(req, target.collection), ...userRead(req) })
     } catch (error) {
       const status = (error as { status?: number } | null)?.status
       if (status !== 403 && status !== 404) throw error
@@ -91,6 +97,7 @@ export function createCascadeSlugUpdatesHook(
       // Keep the original request so failures roll back the folder transaction.
       await req.payload.update({
         ...target,
+        ...trashOptions(req, target.collection),
         data: {}, // Empty update triggers beforeChange hook
         context: {
           cascading: true,
@@ -122,6 +129,8 @@ async function getAllChildFolderIds(
     },
     limit: 0,
     depth: 0,
+    // Live folders only: getFolderPath cannot resolve a trashed ancestor, so
+    // regenerating pages beneath one would drop its segment from their URLs.
     ...trustedRead(req),
   })
 

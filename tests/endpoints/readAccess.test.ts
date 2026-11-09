@@ -31,7 +31,10 @@ describe('request-scoped collection READ access', () => {
       for (const [opts] of calls) expect(opts.overrideAccess).toBe(trusted)
     }
     if (path === 'create' || path === 'check-segment' || path === 'folder-impact') {
-      expectAccess(reads, true)
+      // The parent/target folder is READ-checked first; everything after it is trusted.
+      expect(f.findByID.mock.calls[0][0]).toMatchObject({ collection: 'payload-folders', overrideAccess: false })
+      expectAccess(f.findByID.mock.calls.slice(1), true)
+      expectAccess(f.find.mock.calls, true)
     } else if (path === 'duplicate') {
       expectAccess(f.find.mock.calls.slice(0, 1), false) // display title siblings
       expectAccess(f.find.mock.calls.slice(1), true) // stored segment/slug selection

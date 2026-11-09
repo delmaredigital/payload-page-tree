@@ -71,8 +71,24 @@ function operationErrorStatus(error: unknown): number {
   return status === 403 || status === 404 ? status : 500
 }
 
-/** A filtered UPDATE can also return 404 after the target passed READ. */
-async function updatePage(
+/**
+ * Folders used as a parent or impact target: hidden and missing folders share
+ * one 404 so trusted lookups beneath them cannot be used to probe for them.
+ */
+async function requireReadableFolder(req: PayloadRequest, folderSlug: string, id: string | number) {
+  try {
+    await requireReadableTarget(req, folderSlug, id)
+  } catch (error) {
+    if (operationErrorStatus(error) === 500) throw error
+    throw Object.assign(new Error('Folder not found'), { status: 404 })
+  }
+}
+
+/**
+ * Update a target that already passed READ. A filtered UPDATE reports 404 for
+ * a document the user can read but not update, so map that to 403.
+ */
+async function updateReadableTarget(
   req: PayloadRequest,
   collection: string,
   id: string,
@@ -89,7 +105,7 @@ async function updatePage(
     })
   } catch (error) {
     if (operationErrorStatus(error) === 404) {
-      throw Object.assign(new Error('Page update denied'), { status: 403 })
+      throw Object.assign(new Error('Update denied'), { status: 403 })
     }
     throw error
   }
@@ -124,19 +140,13 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
       if (type === 'folder') {
         // Move folder - pass updateSlugs context to trigger cascade if requested
         await requireReadableTarget(req, folderSlug, id)
-        await req.payload.update({
-          collection: folderSlug as CollectionSlug,
-          id,
-          data: {
-            folder: newParentId || null,
-            sortOrder: newIndex,
-          },
-          context: { updateSlugs, slugChangeReason: 'move' },
-          ...userRead(req),
-        })
+        await updateReadableTarget(req, folderSlug, id, {
+          folder: newParentId || null,
+          sortOrder: newIndex,
+        }, { updateSlugs, slugChangeReason: 'move' })
       } else {
         const collection = await resolveReadablePageCollection(req, collections, id, targetCollection)
-        await updatePage(req, collection, id, {
+        await updateReadableTarget(req, collection, id, {
           folder: newParentId || null,
           sortOrder: newIndex,
         }, { updateSlugs, slugChangeReason: 'move' })
@@ -176,17 +186,15 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
       }
 
       if (type === 'folder') {
-        // Reorder folders
-        await Promise.all(
-          items.map((item) =>
-            req.payload.update({
-              collection: folderSlug as CollectionSlug,
-              id: item.id,
-              data: { sortOrder: item.sortOrder },
-              ...userRead(req),
-            }),
-          ),
-        )
+        // Sequential: concurrent operations must not share one request transaction.
+        for (const item of items) {
+          await req.payload.update({
+            collection: folderSlug as CollectionSlug,
+            id: item.id,
+            data: { sortOrder: item.sortOrder },
+            ...userRead(req),
+          })
+        }
       } else {
         // Resolve every target before writing, including batches spanning collections.
         const targets: { collection: string; id: string; sortOrder: number }[] = []
@@ -195,7 +203,7 @@ export function createReorderHandler(options: TreeEndpointOptions): PayloadHandl
           targets.push({ ...item, collection })
         }
         for (const target of targets) {
-          await updatePage(req, target.collection, target.id, { sortOrder: target.sortOrder })
+          await updateReadableTarget(req, target.collection, target.id, { sortOrder: target.sortOrder })
         }
       }
 
@@ -226,6 +234,8 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
 
       const { type, name, parentId, collection: targetCollection } = body
       const baseSegment = slugifyName(name)
+      // The trusted segment probe below must not reveal what a hidden parent contains.
+      if (parentId) await requireReadableFolder(req, folderSlug, parentId)
 
       if (type === 'folder') {
         const pathSegment = await findAvailableSegment({
@@ -304,7 +314,7 @@ export function createCreateHandler(options: TreeEndpointOptions): PayloadHandle
       console.error('[payload-page-tree] Create error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Create failed' },
-        { status: 500 },
+        { status: operationErrorStatus(error) },
       )
     }
   }
@@ -374,7 +384,9 @@ async function deleteFolderRecursive(
           ...userRead(req),
           depth: 0,
         })
-      } catch {
+      } catch (error) {
+        // Only access outcomes mean "unreadable"; database and other errors propagate.
+        if (operationErrorStatus(error) === 500) throw error
         throw Object.assign(new Error('Cannot delete a folder containing unreadable documents'), { status: 403 })
       }
     }
@@ -656,12 +668,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
 
       if (type === 'folder') {
         await requireReadableTarget(req, folderSlug, id)
-        await req.payload.update({
-          collection: folderSlug as CollectionSlug,
-          id,
-          data: { name },
-          ...userRead(req),
-        })
+        await updateReadableTarget(req, folderSlug, id, { name })
       } else if (collection) {
         if (!collections.includes(collection)) {
           return Response.json(
@@ -670,12 +677,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
           )
         }
         await requireReadableTarget(req, collection, id)
-        await req.payload.update({
-          collection: collection as CollectionSlug,
-          id,
-          data: { title: name },
-          ...userRead(req),
-        })
+        await updateReadableTarget(req, collection, id, { title: name })
       } else {
         return Response.json(
           { error: 'Collection is required for page type' },
@@ -688,7 +690,7 @@ export function createRenameHandler(options: TreeEndpointOptions): PayloadHandle
       console.error('[payload-page-tree] Rename error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Rename failed' },
-        { status: 500 },
+        { status: operationErrorStatus(error) },
       )
     }
   }
@@ -1167,6 +1169,8 @@ export function createCheckSegmentHandler(options: TreeEndpointOptions): Payload
       const slugifiedSegment = slugifyName(segment)
       const parentId = parentIdParam || null
       const excludeId = excludeIdParam || undefined
+      // The trusted segment probe below must not reveal what a hidden parent contains.
+      if (parentId) await requireReadableFolder(req, folderSlug, parentId)
 
       const available = await isSegmentAvailable({
         segmentFieldName: options.segmentFieldName,
@@ -1187,7 +1191,7 @@ export function createCheckSegmentHandler(options: TreeEndpointOptions): Payload
       console.error('[payload-page-tree] Check segment error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Check segment failed' },
-        { status: 500 },
+        { status: operationErrorStatus(error) },
       )
     }
   }
@@ -1217,6 +1221,9 @@ export function createFolderImpactHandler(options: TreeEndpointOptions): Payload
         return Response.json({ error: 'Missing required param: folderId' }, { status: 400 })
       }
 
+      // Hidden descendants are counted below, but only for a folder the user can read.
+      await requireReadableFolder(req, folderSlug, folderId)
+
       const childPageCount = await countDescendantPages({
         payload: req.payload,
         ...trustedRead(req),
@@ -1230,7 +1237,7 @@ export function createFolderImpactHandler(options: TreeEndpointOptions): Payload
       console.error('[payload-page-tree] Folder impact error:', error)
       return Response.json(
         { error: error instanceof Error ? error.message : 'Folder impact failed' },
-        { status: 500 },
+        { status: operationErrorStatus(error) },
       )
     }
   }

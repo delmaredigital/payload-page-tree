@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Security
+
+- **`folder-impact` requires READ on the folder**: The endpoint now checks the requesting user's READ access on `folderId` before counting. An unreadable folder returns the same `404 { error: 'Folder not found' }` as a missing one, so the descendant page count of a hidden folder is no longer exposed. The count beneath a readable folder still includes hidden pages, because the cascade has to update them.
+- **`check-segment` and `create` require READ on the parent folder**: When `parentId` is given, both endpoints READ-check that folder before the trusted segment lookup. An unreadable parent returns the same `404 { error: 'Folder not found' }` as a missing one, so hidden folders can no longer be probed for their contents. Root requests are unchanged. A "segment is taken" answer beneath a readable folder remains possible, as before.
+
+### Fixed
+
+- **Recursive delete reports real errors**: The READ preflight now turns only access outcomes (403/404) into the `403` "unreadable documents" response. Database and other errors propagate as `500` with their message, and nothing is deleted.
+- **Folder update denials return 403**: Moving or renaming a folder the user can read but not update now returns `403 { error: 'Update denied' }`, matching pages. Previously move returned `404` and rename `500`. Rename, create, `check-segment` and `folder-impact` now also pass through 403/404 statuses instead of reporting every failure as `500`.
+- **Sequential folder reorder**: Folder reorder writes one folder at a time instead of running concurrent updates over the shared request, which could interleave inside a single database transaction.
+- **Folder URL cascades include trashed pages**: On trash-enabled page collections, the cascade inventory, READ preflight and slug update include soft-deleted pages, so restoring one no longer brings back a stale URL. Like any other page, an unreadable trashed page refuses the folder change. Pages beneath a trashed folder are still skipped, because their path cannot be resolved through a trashed ancestor.
+
 ## [0.4.0] - 2026-11-09
 
 ### Documentation
