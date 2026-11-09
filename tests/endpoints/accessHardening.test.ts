@@ -37,6 +37,33 @@ describe('hidden parent folders cannot be probed', () => {
     expect(f.create).not.toHaveBeenCalled()
   })
 
+  it.each([
+    ['page', '1', 'hidden-folder'], ['page', '1', 'missing'], ['folder', 'leaf', 'hidden-folder'], ['folder', 'leaf', 'missing'],
+  ] as const)('move returns the same 404 for %s %s moved into a %s parent', async (type, id, newParentId) => {
+    const f = treeFixture()
+    const response = await f.call('move', { type, id, collection: type === 'page' ? 'pages' : undefined, newParentId, newIndex: 0 })
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Folder not found' })
+    expect(f.update).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['page', 'hidden-page'], ['page', 'missing'], ['folder', 'hidden-folder'], ['folder', 'missing'],
+  ] as const)('check-segment returns the same 404 when excluding a %s that is %s', async (type, excludeId) => {
+    const f = treeFixture()
+    const response = await f.call('check-segment', undefined, `type=${type}&collection=pages&parentId=root&segment=secret&excludeId=${excludeId}`)
+    expect(response.status).toBe(404)
+    expect(await response.json()).toEqual({ error: 'Not found' })
+    expect(trustedCalls(f)).toEqual([])
+  })
+
+  it('check-segment still excludes a readable record being edited', async () => {
+    const f = treeFixture()
+    const response = await f.call('check-segment', undefined, 'type=folder&parentId=middle&segment=advanced&excludeId=leaf')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ available: true, slugifiedSegment: 'advanced' })
+  })
+
   it('still checks and creates at root and under a readable parent', async () => {
     const f = treeFixture()
     expect((await f.call('check-segment', undefined, 'type=folder&segment=new')).status).toBe(200)

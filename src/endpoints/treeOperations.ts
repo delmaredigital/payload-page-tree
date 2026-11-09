@@ -76,11 +76,15 @@ function operationErrorStatus(error: unknown): number {
  * one 404 so trusted lookups beneath them cannot be used to probe for them.
  */
 async function requireReadableFolder(req: PayloadRequest, folderSlug: string, id: string | number) {
+  return requireReadableOr404(req, folderSlug, id, 'Folder not found')
+}
+
+async function requireReadableOr404(req: PayloadRequest, collection: string, id: string | number, message: string) {
   try {
-    await requireReadableTarget(req, folderSlug, id)
+    await requireReadableTarget(req, collection, id)
   } catch (error) {
     if (operationErrorStatus(error) === 500) throw error
-    throw Object.assign(new Error('Folder not found'), { status: 404 })
+    throw Object.assign(new Error(message), { status: 404 })
   }
 }
 
@@ -137,15 +141,23 @@ export function createMoveHandler(options: TreeEndpointOptions): PayloadHandler 
         return Response.json({ error: 'collection must name a configured page collection' }, { status: 400 })
       }
 
+      // Resolve the target first, then the destination: a hidden destination gets
+      // the same 404 as a missing one, as for create.
+      const requireReadableDestination = async () => {
+        if (newParentId) await requireReadableFolder(req, folderSlug, newParentId)
+      }
+
       if (type === 'folder') {
         // Move folder - pass updateSlugs context to trigger cascade if requested
         await requireReadableTarget(req, folderSlug, id)
+        await requireReadableDestination()
         await updateReadableTarget(req, folderSlug, id, {
           folder: newParentId || null,
           sortOrder: newIndex,
         }, { updateSlugs, slugChangeReason: 'move' })
       } else {
         const collection = await resolveReadablePageCollection(req, collections, id, targetCollection)
+        await requireReadableDestination()
         await updateReadableTarget(req, collection, id, {
           folder: newParentId || null,
           sortOrder: newIndex,
@@ -1171,6 +1183,10 @@ export function createCheckSegmentHandler(options: TreeEndpointOptions): Payload
       const excludeId = excludeIdParam || undefined
       // The trusted segment probe below must not reveal what a hidden parent contains.
       if (parentId) await requireReadableFolder(req, folderSlug, parentId)
+      // Excluding a hidden document would reveal whether it holds the segment.
+      if (excludeId) {
+        await requireReadableOr404(req, type === 'folder' ? folderSlug : collection!, excludeId, 'Not found')
+      }
 
       const available = await isSegmentAvailable({
         segmentFieldName: options.segmentFieldName,

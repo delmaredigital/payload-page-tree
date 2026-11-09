@@ -122,6 +122,7 @@ describe('cascade editor permissions', () => {
 
   it.each(['move', 'edit-url'] as const)('%s returns the preflight 403 without any persistence', async path => {
     const f = treeFixture()
+    f.rows['payload-folders'].push({ id: 'destination', name: 'Destination', pathSegment: 'new-parent' })
     const before = structuredClone(f.rows)
     const body = path === 'move'
       ? { type: 'folder', id: 'root', newParentId: 'destination', updateSlugs: true }

@@ -8,6 +8,8 @@ All notable changes to this project will be documented in this file.
 
 - **`folder-impact` requires READ on the folder**: The endpoint now checks the requesting user's READ access on `folderId` before counting. An unreadable folder returns the same `404 { error: 'Folder not found' }` as a missing one, so the descendant page count of a hidden folder is no longer exposed. The count beneath a readable folder still includes hidden pages, because the cascade has to update them.
 - **`check-segment` and `create` require READ on the parent folder**: When `parentId` is given, both endpoints READ-check that folder before the trusted segment lookup. An unreadable parent returns the same `404 { error: 'Folder not found' }` as a missing one, so hidden folders can no longer be probed for their contents. Root requests are unchanged. A "segment is taken" answer beneath a readable folder remains possible, as before.
+- **`move` requires READ on the destination folder**: Moving a page or folder into a `newParentId` the user can't read returns the same `404 { error: 'Folder not found' }` as a missing folder, and nothing is written. The target is still checked first, so a missing or unreadable target keeps its own 404.
+- **`check-segment` requires READ on `excludeId`**: An `excludeId` naming a document the user can't read (or one that doesn't exist) returns `404 { error: 'Not found' }`, so excluding a hidden document no longer reveals whether it holds the segment. The tree only sends the record being edited, which the user can already read.
 
 ### Fixed
 
